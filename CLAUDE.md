@@ -53,37 +53,6 @@ Predecessor project: `~/Desktop/jimakutsukeru` (Kotlin monolith).
 
 ---
 
-## Session summary workflow
-
-**When the user says "summarize session" / "save session" / similar:**
-1. Write a summary file: `memory-bank/sessions/YYYY-MM-DD_N.md` (N = sequence number if multiple on same day)
-2. Add a one-line entry to `memory-bank/sessions/_index.md`
-3. Confirm to the user that it was saved
-
-**At the start of a new conversation** (when context seems fresh / user greets or asks where we left off):
-1. Read `memory-bank/sessions/_index.md`
-2. Present the list of past sessions to the user
-3. Ask if they want to load one — if yes, read that file and use it as context
-
-**Summary file format (`YYYY-MM-DD_N.md`):**
-```
-# Session YYYY-MM-DD — <short title>
-
-## What we worked on
-<2-4 bullet points>
-
-## Decisions made
-<bullet points, or "none">
-
-## Current state / where we left off
-<1 paragraph>
-
-## Next steps
-<bullet points>
-```
-
----
-
 ## Current project state
 
 ```

@@ -3,10 +3,12 @@
 ## Stack
 
 ```
-React 18 + TypeScript 5
-Vite 5                   ← build, dev-proxy
-Tailwind CSS v3          ← styling (required by shadcn)
-shadcn/ui                ← UI components (Radix UI + Tailwind)
+React 19 + TypeScript 6
+Vite 8                   ← build, dev-proxy
+Tailwind CSS v4          ← styling (@tailwindcss/vite plugin, no config file)
+shadcn/ui (Nova preset)  ← UI components (Radix UI + Tailwind)
+  └── lucide-react       ← icons
+  └── next-themes        ← dark/light theme provider
 React Router v6          ← routing
 Zustand                  ← global state (auth)
 TanStack Query v5        ← server state (videos, subtitles)
@@ -39,8 +41,7 @@ sublio-web/
 │   │   │   ├── input.tsx
 │   │   │   ├── label.tsx
 │   │   │   ├── separator.tsx
-│   │   │   ├── toast.tsx
-│   │   │   └── toaster.tsx
+│   │   │   └── sonner.tsx              ← toast notifications (replaces deprecated toast)
 │   │   │
 │   │   ├── layout/
 │   │   │   ├── Layout.tsx              ← wrapper for all pages
@@ -92,10 +93,9 @@ sublio-web/
 │   ├── App.tsx                         ← Router + QueryClientProvider
 │   └── main.tsx                        ← ReactDOM.render + Providers
 │
-├── index.html
-├── vite.config.ts                      ← proxy /api → gateway:8080
-├── tailwind.config.ts                  ← dark theme, shadcn preset
-├── components.json                     ← shadcn config
+├── index.html                          ← Noto Sans JP + Inter via Google Fonts, class="dark"
+├── vite.config.ts                      ← proxy /api → gateway:8080, @tailwindcss/vite plugin
+├── components.json                     ← shadcn config (Nova preset, Radix, cssVariables)
 ├── tsconfig.json
 └── package.json
 ```
@@ -107,7 +107,7 @@ sublio-web/
 ```
 App
 ├── QueryClientProvider (TanStack Query)
-├── Toaster (shadcn, global)
+├── Sonner (global toast notifications)
 └── BrowserRouter
     ├── Layout
     │   ├── Header
@@ -151,7 +151,7 @@ App
 ```
 Theme: dark (dark mode by default)
 
-Color scheme (CSS variables in tailwind.config.ts):
+Color scheme (CSS variables in src/index.css @theme block — Tailwind v4 style):
   background:   #0a0a0f   ← near black with blue tint
   foreground:   #e8e8f0
   primary:      #7c5cbf   ← purple (anime aesthetic)

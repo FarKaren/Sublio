@@ -90,14 +90,29 @@ redis==5.0.1
 ```json
 {
   "dependencies": {
-    "react": "^18",
-    "react-dom": "^18",
-    "axios": "^1.6"
+    "react": "^19",
+    "react-dom": "^19",
+    "sonner": "^2",
+    "lucide-react": "^1",
+    "next-themes": "^0.4",
+    "radix-ui": "^1",
+    "class-variance-authority": "^0.7",
+    "clsx": "^2",
+    "tailwind-merge": "^3"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "vite": "^5",
-    "@vitejs/plugin-react": "^4"
+    "typescript": "~6",
+    "vite": "^8",
+    "@vitejs/plugin-react": "^6",
+    "tailwindcss": "^4",
+    "@tailwindcss/vite": "^4",
+    "eslint": "^10",
+    "typescript-eslint": "^8",
+    "eslint-plugin-react-hooks": "^7",
+    "eslint-plugin-react-refresh": "^0.5",
+    "eslint-plugin-jsx-a11y": "^6",
+    "eslint-config-prettier": "^10",
+    "prettier": "^3"
   }
 }
 ```

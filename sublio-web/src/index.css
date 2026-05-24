@@ -1,0 +1,19 @@
+@import 'tailwindcss';
+
+@layer base {
+  body {
+    font-family: 'Inter', sans-serif;
+  }
+  .jp {
+    font-family: 'Noto Sans JP', sans-serif;
+  }
+}
+
+@theme {
+  --color-background: #0a0a0f;
+  --color-foreground: #e8e8f0;
+  --color-primary: #7c5cbf;
+  --color-accent: #a78bfa;
+  --color-muted: #2d2d3f;
+  --color-destructive: #ef4444;
+}

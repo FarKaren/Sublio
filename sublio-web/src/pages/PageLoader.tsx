@@ -1,5 +1,5 @@
 import { Outlet } from 'react-router-dom'
 
-export default function Layout() {
+export default function PageLoader() {
   return <Outlet />
 }

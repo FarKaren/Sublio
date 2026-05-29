@@ -1,13 +1,17 @@
 import { useAuthStore } from '@/store/authStore.ts'
+import { useNavigate } from 'react-router-dom'
 import { authService } from '@/services/authService.ts'
 
 export const useAuth = () => {
-  const user = useAuthStore((state) => state.user)
-  const accessToken = useAuthStore((state) => state.accessToken)
+  const { user, accessToken } = useAuthStore()
+  const navigate = useNavigate()
 
   return {
     user,
     isAuthenticated: !!accessToken,
-    logout: () => authService.logout(),
+    logout: async () => {
+      await authService.logout()
+      navigate('/login')
+    },
   }
 }

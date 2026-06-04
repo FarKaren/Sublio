@@ -14,10 +14,10 @@ function App() {
     <BrowserRouter>
       <Suspense fallback={<PageLoader />}>
         <Routes>
+          <Route path="/login" element={<LoginPage />} />
           <Route element={<Layout />}>
             {/* Public */}
             <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
 
             {/* Protected */}
             <Route element={<ProtectedRoute />}>

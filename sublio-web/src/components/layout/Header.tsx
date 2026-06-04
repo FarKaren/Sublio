@@ -34,22 +34,6 @@ export default function Header() {
           ))}
         </nav>
 
-        {/* Auth — desktop */}
-        <div className="hidden md:flex items-center gap-3">
-          {isAuthenticated ? (
-            <>
-              <span className="text-sm text-muted-foreground">{user?.email}</span>
-              <Button variant="outline" size="sm" onClick={logout}>
-                Logout
-              </Button>
-            </>
-          ) : (
-            <Button asChild size="sm">
-              <NavLink to="/login">Login</NavLink>
-            </Button>
-          )}
-        </div>
-
         {/* Mobile hamburger */}
         <Sheet>
           <SheetTrigger asChild>

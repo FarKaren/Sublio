@@ -7,13 +7,37 @@
   .jp {
     font-family: 'Noto Sans JP', sans-serif;
   }
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus {
+    -webkit-box-shadow: 0 0 0 1000px var(--color-background) inset !important;
+    -webkit-text-fill-color: var(--color-foreground) !important;
+  }
 }
 
 @theme {
   --color-background: #0a0a0f;
   --color-foreground: #e8e8f0;
+
   --color-primary: #7c5cbf;
-  --color-accent: #a78bfa;
+  --color-primary-foreground: #ffffff;
+
   --color-muted: #2d2d3f;
+  --color-muted-foreground: #8888a8;
+
+  --color-accent: #a78bfa;
+  --color-accent-foreground: #ffffff;
+
   --color-destructive: #ef4444;
+  --color-destructive-foreground: #ffffff;
+
+  --color-border: #2d2d3f;
+  --color-input: #1a1a2e;
+  --color-ring: #7c5cbf;
+
+  --color-card: #12121c;
+  --color-card-foreground: #e8e8f0;
+
+  --color-popover: #12121c;
+  --color-popover-foreground: #e8e8f0;
 }

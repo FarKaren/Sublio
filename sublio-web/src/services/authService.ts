@@ -1,8 +1,9 @@
 import { instance } from '@/services/api.ts'
 import { useAuthStore } from '@/store/authStore.ts'
+import type { User } from '@/types'
 
 export const authService = {
-  login: async (email: string, password: string): Promise<void> => {
+  login: async (email: string, password: string): Promise<{ user: User; accessToken: string }> => {
     const response = await instance.post(
       '/auth/login',
       { email, password },
@@ -12,12 +13,16 @@ export const authService = {
     return response.data
   },
 
-  register: async (email: string, password: string): Promise<void> => {
+  register: async (
+    email: string,
+    password: string
+  ): Promise<{ user: User; accessToken: string }> => {
     const response = await instance.post(
       '/auth/register',
       { email, password },
       { withCredentials: true }
     )
+    useAuthStore.getState().setAuth(response.data.user, response.data.accessToken)
     return response.data
   },
 

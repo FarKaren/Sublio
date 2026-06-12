@@ -1,6 +1,6 @@
 import { useState, useEffect, type RefObject } from 'react'
 
-export function useVideoPlayer(videoRef: RefObject<HTMLVideoElement>) {
+export function useVideoPlayer(videoRef: RefObject<HTMLVideoElement | null>) {
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration] = useState(0)
   const [playing, setPlaying] = useState(false)

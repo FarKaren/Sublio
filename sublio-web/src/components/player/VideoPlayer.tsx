@@ -1,0 +1,73 @@
+import { useCallback, useRef, useState } from 'react'
+import { useVideoPlayer } from '@/hooks/useVideoPlayer'
+import type { SubtitleEntry } from '@/types'
+import { PlayerControls } from './PlayerControls'
+import { SubtitleOverlay } from './SubtitleOverlay'
+
+interface VideoPlayerProps {
+  src: string
+  subtitles: SubtitleEntry[]
+}
+
+export function VideoPlayer({ src, subtitles }: VideoPlayerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const {
+    currentTime,
+    duration,
+    playing,
+    volume,
+    buffered,
+    play,
+    pause,
+    seek,
+    setVolume,
+    toggleFullscreen,
+  } = useVideoPlayer(videoRef)
+
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const resetHideTimer = useCallback(() => {
+    setControlsVisible(true)
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current)
+    hideTimerRef.current = setTimeout(() => setControlsVisible(false), 3000)
+  }, [])
+
+  const handleTogglePlay = () => {
+    if (playing) pause()
+    else play()
+  }
+
+  return (
+    <div
+      className="relative w-full bg-black rounded-lg overflow-hidden"
+      onMouseMove={resetHideTimer}
+      onMouseEnter={resetHideTimer}
+      onMouseLeave={() => setControlsVisible(false)}
+    >
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <video
+        ref={videoRef}
+        src={src}
+        preload="metadata"
+        className="w-full block"
+        onClick={handleTogglePlay}
+      />
+
+      <SubtitleOverlay currentTime={currentTime} subtitles={subtitles} />
+
+      <PlayerControls
+        currentTime={currentTime}
+        duration={duration}
+        playing={playing}
+        volume={volume}
+        buffered={buffered}
+        onSeek={seek}
+        onVolumeChange={setVolume}
+        onTogglePlay={handleTogglePlay}
+        onToggleFullscreen={toggleFullscreen}
+        visible={controlsVisible}
+      />
+    </div>
+  )
+}

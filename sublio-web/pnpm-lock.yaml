@@ -62,6 +62,9 @@ importers:
       react-dropzone:
         specifier: ^15.0.0
         version: 15.0.0(react@19.2.6)
+      react-error-boundary:
+        specifier: ^6.1.2
+        version: 6.1.2(react@19.2.6)
       react-hook-form:
         specifier: ^7.76.1
         version: 7.76.1(react@19.2.6)
@@ -3548,6 +3551,11 @@ packages:
     engines: {node: '>= 10.13'}
     peerDependencies:
       react: '>= 16.8 || 18.0.0'
+
+  react-error-boundary@6.1.2:
+    resolution: {integrity: sha512-3DpCr5HVdZ0caUjYE/kIHBEJN0mNP3ZCgf16c48uJ5TbWjorKVp+YG8W3XqlJ7vJAVNw6wNIImyPXmFydwmyng==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
 
   react-hook-form@7.76.1:
     resolution: {integrity: sha512-rYM7tPiWlu3nZchkR/ex7piyzui2vFPyaLnXnI/RnblB/L4qfMmyses8llJVtF1NpE9WBBsJlGtcSZzPCXW1qQ==}
@@ -7712,6 +7720,10 @@ snapshots:
       attr-accept: 2.2.5
       file-selector: 2.1.2
       prop-types: 15.8.1
+      react: 19.2.6
+
+  react-error-boundary@6.1.2(react@19.2.6):
+    dependencies:
       react: 19.2.6
 
   react-hook-form@7.76.1(react@19.2.6):

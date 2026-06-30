@@ -1,5 +1,6 @@
 import { type FC } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Film } from 'lucide-react'
 import type { VideoInfo } from '@/types'
 import VideoCard from '@/components/library/VideoCard.tsx'
 import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card.tsx'
@@ -43,8 +44,14 @@ const VideoGrid: FC<VideoGridProps> = ({ videos, onDelete, isLoading = false }) 
 
   if (videos.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-4 py-20 text-center">
-        <p className="text-muted-foreground">No videos yet. Upload your first one!</p>
+      <div className="flex flex-col items-center gap-6 py-20 text-center">
+        <div className="flex h-24 w-24 items-center justify-center rounded-2xl bg-muted">
+          <Film className="h-10 w-10 text-muted-foreground" />
+        </div>
+        <div className="flex flex-col gap-1">
+          <p className="font-medium">No videos yet</p>
+          <p className="text-sm text-muted-foreground">Upload your first one to get started!</p>
+        </div>
         <Button onClick={() => navigate('/upload')}>Upload video</Button>
       </div>
     )

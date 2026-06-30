@@ -14,7 +14,7 @@ export default function WatchPage() {
   const playerRef = useRef<VideoPlayerHandle>(null)
   const [currentTime, setCurrentTime] = useState(0)
 
-  const { data: subtitles = [] } = useQuery({
+  const { data: subtitles = [], isLoading: subtitlesLoading } = useQuery({
     queryKey: ['subtitles', videoId],
     queryFn: () => subtitleService.getSubtitles(videoId!),
     enabled: !!videoId,
@@ -46,6 +46,7 @@ export default function WatchPage() {
             subtitles={subtitles}
             currentTime={currentTime}
             onSeek={(t) => playerRef.current?.seek(t)}
+            isLoading={subtitlesLoading}
           />
         </div>
       </div>

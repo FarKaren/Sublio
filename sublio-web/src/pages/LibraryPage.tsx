@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { mediaService } from '@/services/mediaService'
 import VideoGrid from '@/components/library/VideoGrid'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
 
 export default function LibraryPage() {
   const navigate = useNavigate()
@@ -34,8 +35,15 @@ export default function LibraryPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">
-          Library{!isLoading && ` (${count} video${count === 1 ? '' : 's'})`}
+        <h1 className="flex items-center gap-2 text-2xl font-semibold">
+          Library
+          {isLoading ? (
+            <Skeleton className="h-6 w-28" />
+          ) : (
+            <span className="text-muted-foreground text-lg font-normal">
+              ({count} video{count === 1 ? '' : 's'})
+            </span>
+          )}
         </h1>
         <Button onClick={() => navigate('/upload')}>+ Upload</Button>
       </div>

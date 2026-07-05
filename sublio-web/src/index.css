@@ -30,6 +30,8 @@
 
   --color-destructive: #ef4444;
   --color-destructive-foreground: #ffffff;
+  /* Darker than --color-destructive so white text on filled buttons/badges meets 4.5:1 contrast */
+  --color-destructive-solid: #dc2626;
 
   --color-border: #2d2d3f;
   --color-input: #1a1a2e;

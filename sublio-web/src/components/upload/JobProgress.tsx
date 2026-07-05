@@ -38,9 +38,10 @@ const JobProgress: FC<JobProgressProps> = ({ jobId, onDone }) => {
       <Badge variant={badgeVariant} className={cn('w-fit', isPulsing && 'animate-pulse')}>
         {status}
       </Badge>
-      <Progress value={STATUS_PERCENT[status]} />
+      <Progress value={STATUS_PERCENT[status]} aria-label="Processing progress" />
       {message && (
         <p
+          role={status === 'ERROR' ? 'alert' : undefined}
           className={cn(
             'text-sm',
             status === 'ERROR' ? 'text-destructive' : 'text-muted-foreground'

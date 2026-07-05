@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet'
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import { useAuth } from '@/hooks/useAuth.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Menu } from 'lucide-react'
@@ -11,7 +11,7 @@ const navLinks = [
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
   isActive
-    ? 'text-primary font-semibold'
+    ? 'text-accent font-semibold'
     : 'text-muted-foreground hover:text-foreground transition-colors'
 
 export default function Header() {
@@ -39,9 +39,11 @@ export default function Header() {
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon" className="md:hidden">
               <Menu className="h-5 w-5" />
+              <span className="sr-only">Open menu</span>
             </Button>
           </SheetTrigger>
           <SheetContent side="left">
+            <SheetTitle className="sr-only">Navigation menu</SheetTitle>
             <nav className="flex flex-col gap-4 mt-6">
               {navLinks.map(({ to, label }) => (
                 <NavLink key={to} to={to} className={linkClass}>

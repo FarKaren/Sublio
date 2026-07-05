@@ -46,8 +46,10 @@ Actions:
 ```typescript
 ['videos']                    ← list of all videos (LibraryPage, HomePage)
 ['subtitles', videoId]        ← subtitles for video (WatchPage)
-['job', jobId]                ← job status (polling fallback)
 ```
+
+Note: `['job', jobId]` polling fallback is not currently wired up — `getJob()` exists
+on jobService but progress is driven entirely by `useJobProgress` (SSE), not useQuery.
 
 ---
 
@@ -55,14 +57,16 @@ Actions:
 
 ```typescript
 // Create instance with base URL and JWT interceptor
+// Exported as `instance` (not `api`) — all services import { instance } from '@/services/api'
+// No Vite dev-proxy: baseURL comes straight from VITE_API_BASE_URL env var
 
-const api = axios.create({
-  baseURL: '/api',
+export const instance = axios.create({
+  baseURL: import.meta.env.VITE_API_BASE_URL,
   timeout: 30_000,
 })
 
 // Request interceptor: adds Bearer token
-api.interceptors.request.use((config) => {
+instance.interceptors.request.use((config) => {
   const token = useAuthStore.getState().accessToken
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
@@ -70,13 +74,17 @@ api.interceptors.request.use((config) => {
 
 // Response interceptor: on 401 → refresh → retry
 //   if refresh also 401 → clearAuth() → redirect /login
-api.interceptors.response.use(
+// Note: refresh is a local refreshAccessToken() in this file (raw axios.post to
+// /auth/refresh with withCredentials), NOT a call to authService.refresh() —
+// the two are currently duplicated logic.
+instance.interceptors.response.use(
   (res) => res,
   async (err) => {
     if (err.response?.status === 401 && !err.config._retry) {
       err.config._retry = true
-      await authService.refresh()    // updates token in store
-      return api(err.config)         // retries original request
+      const { accessToken, user } = await refreshAccessToken()
+      useAuthStore.getState().setAuth(user, accessToken)
+      return instance(err.config)    // retries original request
     }
     return Promise.reject(err)
   }
@@ -117,7 +125,7 @@ getVideoList()
 
 upload(file: File, jobId: string, onProgress: (pct: number) => void)
   → POST /api/upload?jobId={jobId}
-  → FormData { video: file }
+  → FormData { file: file }        ← field name is "file", not "video"
   → axios onUploadProgress → onProgress(percent)
 
 deleteVideo(folderId: string)
@@ -170,7 +178,8 @@ Problem: EventSource does not support custom headers
 
 Solution: short-lived SSE token
   1. jobService.getSseToken(jobId) → sseToken (TTL 60 sec)
-  2. new EventSource(`/api/jobs/${jobId}/progress?token=${sseToken}`)
+  2. new EventSource(`${VITE_API_BASE_URL}/api/jobs/${jobId}/progress?token=${sseToken}`)
+     ← absolute URL (env-based baseURL), not a relative path
   3. Gateway validates sseToken from query param (only for /progress)
 
 Hook:
@@ -181,31 +190,20 @@ Hook:
     message: string
     result:  { videoUrl, subtitleId } | null
 
-Lifecycle:
+Lifecycle (simplified):
   useEffect(() => {
     if (!jobId) return
     let es: EventSource | null = null
 
-    getSseToken(jobId).then(({ sseToken }) => {
-      es = new EventSource(`/api/jobs/${jobId}/progress?token=${sseToken}`)
+    connect()  // fetches a fresh sseToken and opens the EventSource
 
-      es.addEventListener('progress', (e) => {
-        const { status, message } = JSON.parse(e.data)
-        setStatus(status)
-        setMessage(message)
-      })
-
-      es.addEventListener('done', (e) => {
-        const { videoUrl, subtitleId } = JSON.parse(e.data)
-        setResult({ videoUrl, subtitleId })
-        setStatus('DONE')
-        es?.close()
-      })
-
-      es.addEventListener('error', () => {
-        setStatus('ERROR')
-        es?.close()
-      })
+    es.addEventListener('progress', ...)
+    es.addEventListener('done', ...)   → es?.close()
+    es.addEventListener('error', () => {
+      // on error (e.g. expired sseToken), fetches a NEW sseToken and
+      // reconnects rather than immediately giving up — not just a hard failure
+      es?.close()
+      reconnect()
     })
 
     return () => es?.close()   ← cleanup on unmount
@@ -224,11 +222,13 @@ Returns:
   duration: number
   playing: boolean
   volume: number
+  buffered: number             ← buffered-progress percentage (not just playback state)
 
   play()    → videoRef.current.play()
   pause()   → videoRef.current.pause()
   seek(t)   → videoRef.current.currentTime = t
   setVolume(v) → videoRef.current.volume = v
+  toggleFullscreen() → videoRef.current.requestFullscreen() / document.exitFullscreen()
 
 useEffect:
   const el = videoRef.current
@@ -236,6 +236,8 @@ useEffect:
   el.addEventListener('durationchange', () => setDuration(el.duration))
   el.addEventListener('play', () => setPlaying(true))
   el.addEventListener('pause', () => setPlaying(false))
+  el.addEventListener('progress', () => setBuffered(...))
+  // cleanup: removes all listeners on unmount
 ```
 
 ---
@@ -320,29 +322,40 @@ export function parseSubtitleTime(srtTime: string): number {
 ```json
 {
   "dependencies": {
-    "react": "^18",
-    "react-dom": "^18",
-    "react-router-dom": "^6",
-    "axios": "^1.6",
-    "zustand": "^4",
+    "react": "^19",
+    "react-dom": "^19",
+    "react-router-dom": "^7",
+    "axios": "^1.16",
+    "zustand": "^5",
     "@tanstack/react-query": "^5",
-    "react-dropzone": "^14",
+    "react-dropzone": "^15",
+    "react-hook-form": "^7",
+    "@hookform/resolvers": "^5",
+    "zod": "^3",
+    "react-error-boundary": "^6",
+    "sonner": "^2",
+    "@fontsource-variable/geist": "^5",
+    "@fontsource/noto-sans-jp": "^5",
+    "next-themes": "^0.4",
+    "radix-ui": "^1",
     "class-variance-authority": "^0.7",
     "clsx": "^2",
-    "tailwind-merge": "^2",
-    "lucide-react": "^0.400"
+    "tailwind-merge": "^3",
+    "lucide-react": "^1"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/react": "^18",
-    "@types/react-dom": "^18",
-    "vite": "^5",
-    "@vitejs/plugin-react": "^4",
-    "tailwindcss": "^3",
-    "autoprefixer": "^10",
-    "postcss": "^8"
+    "typescript": "~6",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "vite": "^8",
+    "@vitejs/plugin-react": "^6",
+    "@tailwindcss/vite": "^4",
+    "tailwindcss": "^4",
+    "rollup-plugin-visualizer": "^7",
+    "babel-plugin-react-compiler": "^1"
   }
 }
 ```
 
+Note: Tailwind v4 uses the `@tailwindcss/vite` plugin, no `postcss`/`autoprefixer`/config file needed.
 Icons: `lucide-react` — already integrated in shadcn/ui, no separate icon library needed.

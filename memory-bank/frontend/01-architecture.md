@@ -4,16 +4,20 @@
 
 ```
 React 19 + TypeScript 6
-Vite 8                   ← build, dev-proxy
-Tailwind CSS v4          ← styling (@tailwindcss/vite plugin, no config file)
-shadcn/ui (Nova preset)  ← UI components (Radix UI + Tailwind)
-  └── lucide-react       ← icons
-  └── next-themes        ← dark/light theme provider
-React Router v6          ← routing
-Zustand                  ← global state (auth)
-TanStack Query v5        ← server state (videos, subtitles)
-axios                    ← HTTP client + JWT interceptor
-react-dropzone           ← drag-and-drop file upload
+Vite 8                        ← build (rollup-plugin-visualizer for bundle analysis)
+Tailwind CSS v4               ← styling (@tailwindcss/vite plugin, no config file)
+shadcn/ui (Nova preset)       ← UI components (Radix UI + Tailwind)
+  └── lucide-react            ← icons
+  └── next-themes             ← dark/light theme provider
+React Router v7               ← routing (lazy-loaded pages + Suspense)
+Zustand                       ← global state (auth, persisted)
+TanStack Query v5             ← server state (videos, subtitles)
+axios                         ← HTTP client + JWT interceptor, baseURL from VITE_API_BASE_URL
+react-hook-form + zod         ← form state + validation (AuthForm)
+react-error-boundary           ← global + per-route error boundaries
+sonner                        ← toast notifications
+react-dropzone                ← drag-and-drop file upload
+@fontsource/noto-sans-jp      ← self-hosted Japanese font (FAR-42, avoids Google Fonts FOIT)
 ```
 
 ---
@@ -31,21 +35,28 @@ sublio-web/
 │   ├── components/
 │   │   │
 │   │   ├── ui/                         ← shadcn/ui (auto-generated, do not edit)
+│   │   │   ├── alert-dialog.tsx        ← confirm dialogs (used for delete video, not Dialog)
+│   │   │   ├── AuthForm.tsx            ← shared login/register form (react-hook-form + zod)
+│   │   │   ├── badge.tsx
 │   │   │   ├── button.tsx
 │   │   │   ├── card.tsx
-│   │   │   ├── progress.tsx
-│   │   │   ├── badge.tsx
-│   │   │   ├── dialog.tsx
-│   │   │   ├── slider.tsx
-│   │   │   ├── scroll-area.tsx
+│   │   │   ├── dialog.tsx              ← scaffolded, unused (0 bytes) — AlertDialog used instead
+│   │   │   ├── form.tsx
 │   │   │   ├── input.tsx
 │   │   │   ├── label.tsx
-│   │   │   ├── separator.tsx
-│   │   │   └── sonner.tsx              ← toast notifications (replaces deprecated toast)
+│   │   │   ├── PageErrorFallback.tsx   ← fallback UI for react-error-boundary
+│   │   │   ├── progress.tsx
+│   │   │   ├── scroll-area.tsx
+│   │   │   ├── separator.tsx           ← scaffolded, unused (0 bytes)
+│   │   │   ├── sheet.tsx               ← mobile nav drawer (Header)
+│   │   │   ├── skeleton.tsx            ← loading placeholders (VideoGrid)
+│   │   │   ├── slider.tsx
+│   │   │   ├── sonner.tsx              ← toast notifications (replaces deprecated shadcn toast)
+│   │   │   └── tabs.tsx                ← used in LoginPage (login/register tabs)
 │   │   │
 │   │   ├── layout/
-│   │   │   ├── Layout.tsx              ← wrapper for all pages
-│   │   │   ├── Header.tsx              ← navigation + auth buttons
+│   │   │   ├── Layout.tsx              ← wrapper for protected pages (Header + <Outlet>)
+│   │   │   ├── Header.tsx              ← nav + auth buttons + mobile Sheet menu
 │   │   │   └── ProtectedRoute.tsx      ← redirect to /login if no token
 │   │   │
 │   │   ├── upload/
@@ -70,9 +81,9 @@ sublio-web/
 │   │   └── WatchPage.tsx               ← /watch/:videoId
 │   │
 │   ├── hooks/
-│   │   ├── useJobProgress.ts           ← SSE EventSource
-│   │   ├── useVideoPlayer.ts           ← currentTime, duration, playing
-│   │   └── useAuth.ts                  ← token from Zustand
+│   │   ├── useJobProgress.ts           ← SSE EventSource, reconnects on token expiry
+│   │   ├── useVideoPlayer.ts           ← currentTime, duration, playing, buffered, fullscreen
+│   │   └── useAuth.ts                  ← user/isAuthenticated from Zustand + logout()
 │   │
 │   ├── services/
 │   │   ├── api.ts                      ← axios instance + JWT interceptor
@@ -93,8 +104,8 @@ sublio-web/
 │   ├── App.tsx                         ← Router + QueryClientProvider
 │   └── main.tsx                        ← ReactDOM.render + Providers
 │
-├── index.html                          ← Noto Sans JP + Inter via Google Fonts, class="dark"
-├── vite.config.ts                      ← proxy /api → gateway:8080, @tailwindcss/vite plugin
+├── index.html                          ← class="dark", no font links (fonts self-hosted, imported in main.tsx)
+├── vite.config.ts                      ← @tailwindcss/vite, react-compiler babel, bundle visualizer plugin
 ├── components.json                     ← shadcn config (Nova preset, Radix, cssVariables)
 ├── tsconfig.json
 └── package.json
@@ -106,42 +117,43 @@ sublio-web/
 
 ```
 App
+├── ErrorBoundary (react-error-boundary → PageErrorFallback)
 ├── QueryClientProvider (TanStack Query)
 ├── Sonner (global toast notifications)
 └── BrowserRouter
-    ├── Layout
-    │   ├── Header
-    │   │   ├── nav links
-    │   │   └── [auth state] → Login button / Logout button
-    │   └── <Outlet> (page)
+    ├── /login → LoginPage             ← NOT wrapped in Layout (no Header/chrome)
+    │   └── AuthForm (Tabs: login/register, react-hook-form + zod)
     │
-    ├── / → HomePage
-    │   ├── Hero section
-    │   └── VideoGrid (last 3) → VideoCard × N
-    │
-    ├── /login → LoginPage
-    │   └── shadcn Card (form)
-    │
-    ├── /library → LibraryPage  [ProtectedRoute]
-    │   └── VideoGrid → VideoCard × N
-    │       └── shadcn Dialog (confirm delete)
-    │
-    ├── /upload → UploadPage  [ProtectedRoute]
-    │   ├── DropZone
-    │   └── JobProgress
-    │       ├── shadcn Progress (progress bar)
-    │       └── shadcn Badge (status)
-    │
-    └── /watch/:videoId → WatchPage  [ProtectedRoute]
-        ├── VideoPlayer
-        │   ├── <video> element
-        │   ├── SubtitleOverlay (over video)
-        │   └── PlayerControls
-        │       ├── shadcn Slider (timeline)
-        │       └── shadcn Slider (volume)
-        └── SubtitlePanel
-            └── shadcn ScrollArea
-                └── subtitle entries × N
+    └── Layout (Header + <Outlet>, all lazy-loaded via Suspense/PageLoader)
+        ├── Header
+        │   ├── nav links (desktop)
+        │   ├── Sheet (mobile hamburger menu)
+        │   └── [auth state] → Login button / Logout button
+        │
+        ├── / → HomePage
+        │   ├── Hero section
+        │   └── VideoGrid (last 3) → VideoCard × N
+        │
+        ├── /library → LibraryPage  [ProtectedRoute]
+        │   └── VideoGrid → VideoCard × N (Skeleton while loading)
+        │       └── shadcn AlertDialog (confirm delete)
+        │
+        ├── /upload → UploadPage  [ProtectedRoute]
+        │   ├── DropZone
+        │   └── JobProgress
+        │       ├── shadcn Progress (progress bar)
+        │       └── shadcn Badge (status)
+        │
+        └── /watch/:videoId → WatchPage  [ProtectedRoute]
+            ├── VideoPlayer
+            │   ├── <video> element
+            │   ├── SubtitleOverlay (over video)
+            │   └── PlayerControls
+            │       ├── shadcn Slider (timeline)
+            │       └── shadcn Slider (volume)
+            └── SubtitlePanel
+                └── shadcn ScrollArea
+                    └── subtitle entries × N
 ```
 
 ---
@@ -160,27 +172,15 @@ Color scheme (CSS variables in src/index.css @theme block — Tailwind v4 style)
   muted:        #2d2d3f
   destructive:  #ef4444   ← red for errors
 
-Fonts:
-  UI text:      Inter (latin)
-  Japanese:     Noto Sans JP (Google Fonts) ← for kanji + hiragana
+Fonts (self-hosted via @fontsource, imported in main.tsx — not Google Fonts):
+  UI text:      Geist Variable (@fontsource-variable/geist)
+  Japanese:     Noto Sans JP 400/500 (@fontsource/noto-sans-jp) ← for kanji + hiragana
 ```
 
 ---
 
-## Vite proxy (dev)
+## API base URL
 
-```typescript
-// vite.config.ts
-export default defineConfig({
-  server: {
-    proxy: {
-      '/api': {
-        target: 'http://localhost:8080',   // api-gateway
-        changeOrigin: true,
-      }
-    }
-  }
-})
-```
-
-In production: Nginx or Gateway serves static files itself.
+No Vite dev-proxy is configured. `services/api.ts` sets `baseURL: import.meta.env.VITE_API_BASE_URL`
+directly on the axios instance, so the gateway URL is supplied via env var (`.env`/`.env.local`,
+not committed) rather than proxied through Vite.

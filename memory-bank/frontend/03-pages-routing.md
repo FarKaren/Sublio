@@ -15,25 +15,34 @@
 ## Routing schema (App.tsx)
 
 ```
-<BrowserRouter>
-  <Routes>
-    <Route element={<Layout />}>
+<ErrorBoundary FallbackComponent={PageErrorFallback}>
+  <BrowserRouter>
+    <Suspense fallback={<PageLoader />}>
+      <Routes>
 
-      ← public
-      <Route path="/"        element={<HomePage />} />
-      <Route path="/login"   element={<LoginPage />} />
+        ← public, NOT wrapped in Layout (no Header/chrome)
+        <Route path="/login" element={<LoginPage />} />
 
-      ← protected (ProtectedRoute checks JWT)
-      <Route element={<ProtectedRoute />}>
-        <Route path="/library"          element={<LibraryPage />} />
-        <Route path="/upload"           element={<UploadPage />} />
-        <Route path="/watch/:videoId"   element={<WatchPage />} />
-      </Route>
+        <Route element={<Layout />}>
+          ← public
+          <Route path="/" element={<HomePage />} />
 
-    </Route>
-  </Routes>
-</BrowserRouter>
+          ← protected (ProtectedRoute checks JWT)
+          <Route element={<ProtectedRoute />}>
+            <Route path="/library"          element={<LibraryPage />} />
+            <Route path="/upload"           element={<UploadPage />} />
+            <Route path="/watch/:videoId"   element={<WatchPage />} />
+          </Route>
+        </Route>
+
+      </Routes>
+    </Suspense>
+  </BrowserRouter>
+</ErrorBoundary>
 ```
+
+All page components are `lazy()`-loaded; `PageLoader` is the Suspense fallback and
+`PageErrorFallback` is the react-error-boundary fallback (both in `components/ui/`).
 
 ---
 
@@ -85,12 +94,12 @@ UI:
 └──────────────────────────────────────┘
 
 Logic:
-  useState: { email, password, error, loading }
-  onSubmit → authService.login(email, password)
-    → authStore.setToken(accessToken)
+  Shared AuthForm component (ui/AuthForm.tsx), form state via react-hook-form + zod resolver
+  shadcn Tabs switch between login/register mode
+  onSubmit → authService.login(...) / authService.register(...)
+    → authStore.setAuth(user, accessToken)
     → navigate('/')
-  Error 401 → "Invalid email or password"
-  "Register" tab switches form to register
+  Errors surfaced via sonner toast (react-query onError) + inline field validation
 ```
 
 ---
@@ -243,7 +252,7 @@ currentTime is synchronized:
 ### Delete video
 
 ```
-/library → VideoCard → [Delete] → Dialog confirm
+/library → VideoCard → [Delete] → AlertDialog confirm
   → DELETE /api/video/:folderId
   → queryClient.invalidateQueries(['videos'])
   → VideoGrid updated

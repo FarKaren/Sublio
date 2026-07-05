@@ -3,8 +3,12 @@
 ## shadcn/ui components (installed via CLI)
 
 ```bash
-npx shadcn@latest add button card progress badge dialog slider scroll-area input label separator toast
+npx shadcn@latest add button card progress badge alert-dialog slider scroll-area input label sheet tabs skeleton form
 ```
+
+Note: `dialog` and `separator` were scaffolded early on but are unused empty files
+(0 bytes) — `AlertDialog` is used for confirmations instead, and no Separator is
+used anywhere. `toast` was replaced by `sonner` (see below).
 
 ```
 Component         Where used
@@ -13,13 +17,15 @@ Button            everywhere — actions
 Card              VideoCard, LoginPage, JobProgress
 Progress          JobProgress (transcription progress)
 Badge             JobProgress (status: QUEUED, TRANSCRIBING, DONE)
-Dialog            confirm video deletion in VideoCard
+AlertDialog       confirm video deletion in VideoCard
 Slider            PlayerControls: timeline + volume
 ScrollArea        SubtitlePanel (subtitle scrolling)
-Input             LoginPage form
-Label             LoginPage form
-Separator         Layout (horizontal dividers)
-Toast / Toaster   global error notifications
+Input / Label     AuthForm (login/register), via react-hook-form
+Form              AuthForm field wiring (react-hook-form + zod resolver)
+Tabs              LoginPage (login/register tabs)
+Sheet             Header (mobile hamburger nav drawer)
+Skeleton          VideoGrid (loading placeholders)
+Sonner (toast)    global notifications (react-query onError, auth errors)
 ```
 
 ---
@@ -47,6 +53,8 @@ Toast / Toaster   global error notifications
 - If authenticated: avatar + Logout button
 - If not: Login button → `/login`
 - Auth state read from `useAuth()` (Zustand)
+- Mobile: hamburger opens a shadcn `Sheet` drawer with the same nav links
+- Not rendered on `/login` — LoginPage sits outside `Layout` (no shared chrome)
 
 ### ProtectedRoute.tsx
 
@@ -165,8 +173,8 @@ Props:
 
 Logic:
   const active = subtitles.find(s =>
-    parseTime(s.start) <= currentTime &&
-    currentTime <= parseTime(s.end)
+    parseSubtitleTime(s.start) <= currentTime &&
+    currentTime <= parseSubtitleTime(s.end)
   )
 
 Visually (over video, position: absolute bottom):
@@ -233,7 +241,7 @@ Props:
 └──────────────────────────────┘
 shadcn ScrollArea (height = player height)
 
-On entry click → onSeek(parseTime(entry.start))
+On entry click → onSeek(parseSubtitleTime(entry.start))
 Auto-scroll to active entry via useEffect + scrollIntoView
 ```
 
@@ -259,7 +267,7 @@ shadcn Card:
 │  [▶ Watch]  [🗑 Delete] │
 └────────────────────────┘
 
-Delete → shadcn Dialog (confirm):
+Delete → shadcn AlertDialog (confirm):
   "Delete video and subtitles? This action is irreversible."
   [Cancel] [Delete]
 ```
@@ -277,5 +285,5 @@ CSS Grid, 3 columns on wide, 2 on md, 1 on mobile:
 States:
   loading → skeleton cards (shadcn Skeleton)
   empty   → "No uploaded videos. Upload the first one!"
-  error   → shadcn Toast with message
+  error   → sonner toast with message
 ```

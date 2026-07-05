@@ -58,13 +58,24 @@ const AuthForm = ({ mutation }: AuthFormProps) => {
           inputType="password"
           formControl={form.control}
         />
-        {mutation.isError && <p className="text-sm text-destructive">Invalid email or password</p>}
+        {mutation.isError && (
+          <p role="alert" className="text-sm text-destructive">
+            Invalid email or password
+          </p>
+        )}
         <Button
           type="submit"
           disabled={mutation.isPending}
           className="w-full [background:linear-gradient(to_right,var(--color-primary),var(--color-accent))] text-white hover:opacity-90 transition-opacity"
         >
-          {mutation.isPending ? <Loader2 className="animate-spin" /> : 'Submit'}
+          {mutation.isPending ? (
+            <>
+              <Loader2 className="animate-spin" />
+              <span className="sr-only">Submitting…</span>
+            </>
+          ) : (
+            'Submit'
+          )}
         </Button>
       </form>
     </Form>

@@ -45,6 +45,7 @@ export function PlayerControls({
           style={{ width: `${buffered}%` }}
         />
         <Slider
+          aria-label="Seek"
           min={0}
           max={duration || 1}
           step={0.1}
@@ -59,6 +60,7 @@ export function PlayerControls({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={playing ? 'Pause' : 'Play'}
           className="text-white hover:text-white hover:bg-white/20"
           onClick={onTogglePlay}
         >
@@ -76,24 +78,27 @@ export function PlayerControls({
         <Button
           variant="ghost"
           size="icon"
+          aria-label={volume === 0 ? 'Unmute' : 'Mute'}
           className="text-white hover:text-white hover:bg-white/20"
           onClick={() => onVolumeChange(volume > 0 ? 0 : 1)}
         >
           {volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
         </Button>
         <Slider
+          aria-label="Volume"
           min={0}
           max={1}
           step={0.02}
           value={[volume]}
           onValueChange={([val]) => onVolumeChange(val)}
-          className="w-24"
+          className="hidden w-24 sm:block"
         />
 
         {/* Fullscreen */}
         <Button
           variant="ghost"
           size="icon"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           className="text-white hover:text-white hover:bg-white/20"
           onClick={onToggleFullscreen}
         >

@@ -60,9 +60,14 @@ export function SubtitlePanel({
                   role="button"
                   tabIndex={0}
                   onClick={() => onSeek(parseSubtitleTime(entry.start))}
-                  onKeyDown={(e) => e.key === 'Enter' && onSeek(parseSubtitleTime(entry.start))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSeek(parseSubtitleTime(entry.start))
+                    }
+                  }}
                   className={cn(
-                    'cursor-pointer rounded p-2 text-sm transition-colors hover:bg-accent',
+                    'cursor-pointer rounded p-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                     isActive && 'bg-primary/20 border-l-2 border-primary pl-2'
                   )}
                 >

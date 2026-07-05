@@ -1,4 +1,12 @@
-import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import { useVideoPlayer } from '@/hooks/useVideoPlayer'
 import type { SubtitleEntry } from '@/types'
 import { PlayerControls } from './PlayerControls'
@@ -50,6 +58,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       else play()
     }
 
+    const handleKeyDown = (e: KeyboardEvent<HTMLVideoElement>) => {
+      if (e.key === ' ' || e.key === 'k') {
+        e.preventDefault()
+        handleTogglePlay()
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        seek(Math.min(currentTime + 5, duration))
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        seek(Math.max(currentTime - 5, 0))
+      }
+    }
+
     return (
       <div
         className="relative w-full bg-black rounded-lg overflow-hidden"
@@ -62,8 +83,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           preload="metadata"
-          className="w-full block"
+          aria-label="Video player"
+          tabIndex={0}
+          className="w-full block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={handleTogglePlay}
+          onKeyDown={handleKeyDown}
         />
 
         <SubtitleOverlay currentTime={currentTime} subtitles={subtitles} />

@@ -23,8 +23,10 @@ const DropZone: FC<DropZoneProps> = ({ onFileSelect }) => {
     <div className="flex flex-col items-center gap-2">
       <div
         {...getRootProps()}
+        role="button"
+        aria-label="Upload a video file. Click or drag and drop a video here."
         className={cn(
-          'flex h-48 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-all',
+          'flex h-48 w-full cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
           isDragActive && 'scale-105 border-primary text-primary',
           isRejected && 'border-destructive text-destructive',
           !isDragActive && !isRejected && 'border-muted-foreground text-muted-foreground'
@@ -37,7 +39,9 @@ const DropZone: FC<DropZoneProps> = ({ onFileSelect }) => {
         <p className="mt-1 text-xs opacity-60">MP4, MKV, AVI — up to 2 GB</p>
       </div>
       {isRejected && (
-        <p className="text-sm text-destructive">{rejectionMessage ?? 'File rejected'}</p>
+        <p role="alert" className="text-sm text-destructive">
+          {rejectionMessage ?? 'File rejected'}
+        </p>
       )}
     </div>
   )

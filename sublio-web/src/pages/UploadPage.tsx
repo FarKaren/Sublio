@@ -123,7 +123,7 @@ export default function UploadPage() {
       {state.phase === 'UPLOADING' && (
         <div className="flex flex-col gap-3">
           <p className="truncate text-sm text-muted-foreground">{state.fileName}</p>
-          <Progress value={state.progress} />
+          <Progress value={state.progress} aria-label="Upload progress" />
           <div className="flex justify-between text-xs text-muted-foreground">
             <span>{state.progress}%</span>
             {state.bytesPerSec != null && state.etaSec != null && (
@@ -151,7 +151,9 @@ export default function UploadPage() {
 
       {state.phase === 'ERROR' && (
         <div className="flex flex-col items-center gap-4 text-center">
-          <p className="text-sm text-destructive">{state.message}</p>
+          <p role="alert" className="text-sm text-destructive">
+            {state.message}
+          </p>
           <Button variant="outline" onClick={() => dispatch({ type: 'RESET' })}>
             Try again
           </Button>

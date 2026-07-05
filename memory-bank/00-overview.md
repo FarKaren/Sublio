@@ -87,14 +87,31 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 ├── sublio-web/                        [React / TypeScript + shadcn/ui]
 │   └── see memory-bank/frontend/ for detailed architecture
 │
+├── api/                                ← OpenAPI contracts (spec-first, see backend/07-api-contracts.md)
+│   ├── auth-service.yaml
+│   ├── media-service.yaml
+│   ├── job-service.yaml
+│   └── subtitle-service.yaml
+│
 └── infra/
     ├── docker-compose.yml             ← entire stack with one command
     ├── postgres/
     │   └── init.sql                   ← schemas: users, jobs, subtitles
     ├── redis/
     │   └── redis.conf                 ← AUTH + TLS
-    └── certs/
-        └── ...                        ← TLS certificates for gateway
+    ├── certs/
+    │   └── ...                        ← TLS certificates for gateway
+    ├── nexus/
+    │   └── ...                        ← Sonatype Nexus data volume (Docker/Go/Gradle/PyPI proxy)
+    └── observability/
+        ├── alloy/
+        │   └── config.alloy           ← OTLP receiver → routes to Tempo + Prometheus
+        ├── tempo/
+        │   └── tempo.yaml             ← trace storage config
+        ├── prometheus/
+        │   └── prometheus.yml         ← scrape config (pulls from Alloy)
+        └── grafana/
+            └── dashboards/            ← per-service dashboards (provisioned)
 ```
 
 ---
@@ -187,6 +204,27 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │                                                     │
 │  PostgreSQL        :5432                            │
 │  Redis             :6379                            │
+└─────────────────────┬───────────────────────────────┘
+                      │ OTLP (grpc :4317 / http :4318)
+                      │ every service pushes traces+metrics here
+┌─────────────────────▼───────────────────────────────┐
+│  OBSERVABILITY ZONE (internal, dev-exposed only)    │
+│                                                     │
+│  grafana-alloy     :4317/4318 (OTLP in)             │
+│  tempo             :3200 (query)                    │
+│  prometheus        :9090                            │
+│  grafana           :3000 (localhost only, not gateway)│
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│  BUILD / SUPPLY-CHAIN ZONE (used at build time, not  │
+│  on the request path)                                │
+│                                                     │
+│  nexus  :8081 (UI/API) — private Docker registry +  │
+│           pull-through cache for Go modules, Gradle, │
+│           PyPI. CI and `docker build` point here     │
+│           instead of hitting public registries        │
+│           directly on every build.                   │
 └─────────────────────────────────────────────────────┘
 ```
 
@@ -201,4 +239,9 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 /api/jobs/*          →  job-service:8083
 /api/subtitles/*     →  subtitle-service:8084
 /*                   →  sublio-web (static files)
+
+Never proxied by gateway (internal-only, scraped directly inside
+the Docker network):
+  /metrics            →  each service's Prometheus exporter
+  /healthz, /readyz   →  liveness/readiness probes
 ```

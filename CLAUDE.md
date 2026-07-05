@@ -21,7 +21,10 @@ Predecessor project: `~/Desktop/jimakutsukeru` (Kotlin monolith).
 | [backend/02-data-flow.md](memory-bank/backend/02-data-flow.md) | Sequence diagram, Redis channels, PostgreSQL schema |
 | [backend/03-security.md](memory-bank/backend/03-security.md) | Security by layers, threat table |
 | [backend/04-tech-stack.md](memory-bank/backend/04-tech-stack.md) | Languages, libraries, ports, Docker networks |
-| [backend/05-impl-plan.md](memory-bank/backend/05-impl-plan.md) | 7 implementation phases with dependency diagram |
+| [backend/05-impl-plan.md](memory-bank/backend/05-impl-plan.md) | Implementation phases with dependency diagram |
+| [backend/06-observability.md](memory-bank/backend/06-observability.md) | OTEL + Alloy + Tempo + Prometheus + Grafana |
+| [backend/07-api-contracts.md](memory-bank/backend/07-api-contracts.md) | OpenAPI spec-first workflow + codegen per language |
+| [backend/08-scalability.md](memory-bank/backend/08-scalability.md) | High-load patterns, statelessness, resilience, load testing |
 
 ### Frontend
 | File | Contents |
@@ -56,11 +59,17 @@ Predecessor project: `~/Desktop/jimakutsukeru` (Kotlin monolith).
 ## Current project state
 
 ```
-sublio-media-service/   ← Go, skeleton (main.go — empty hello world)
-sublio-web/             ← React/TS, directory created, empty
+sublio-web/             ← React/TS, DONE (see memory-bank/frontend/)
+sublio-media-service/   ← Go, skeleton only (config loader + slog logger, no handlers yet)
 ```
 
-The remaining 5 services need to be created.
+Starting backend now. Goal: reach techlead/architect level — build it with real
+high-load patterns and practices, not just the minimum to make it work. See
+memory-bank/backend/06-08 for the added observability/contracts/scalability decisions.
+
+The remaining 6 services (auth, media rewrite, job, subtitle, transcription-worker,
+gateway) plus cross-cutting infra (Nexus, OpenAPI tooling, observability stack)
+need to be built.
 
 ---
 
@@ -74,6 +83,21 @@ The remaining 5 services need to be created.
 - **PostgreSQL** — persistence (jobs, users, subtitles)
 - Shared Docker Volume for file transfer (video → SRT)
 - All external requests ONLY through api-gateway
+- **Design goal:** architect for scale, run small — real high-load patterns
+  (stateless services, caching, circuit breakers, idempotency, load-tested)
+  but deployed via docker-compose at real (low) traffic. Learning project,
+  not overprovisioned infra. See memory-bank/backend/08-scalability.md.
+- **OpenAPI-first, spec-first with codegen** — write the `.yaml` contract in
+  `api/` before writing handlers; generate server interfaces/DTOs from it
+  (oapi-codegen for Go, openapi-generator for Kotlin). See backend/07-api-contracts.md.
+- **Stateless services wherever possible** — no in-memory session/job state;
+  SSE connections in job-service are stateless at the instance level (state
+  lives in Redis/Postgres, any replica can serve any request). See backend/08-scalability.md.
+- **Observability: OTEL SDK → Grafana Alloy → Tempo (traces) + Prometheus (metrics) → Grafana.**
+  Logs stay structured stdout (slog/logback/structlog) with trace_id injected,
+  not centralized yet. See backend/06-observability.md.
+- **Nexus (Sonatype Nexus OSS)** — private Docker registry + pull-through cache
+  for Go modules/Gradle/PyPI, used at build time only, not on the request path.
 
 **Frontend:**
 - **shadcn/ui** — UI components (do not switch to another library)

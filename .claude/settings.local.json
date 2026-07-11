@@ -10,7 +10,8 @@
       "Bash(pnpm run *)",
       "Bash(git -C /Users/karen/Desktop/Sublio log --oneline -5 -- sublio-web)",
       "Bash(git -C /Users/karen/Desktop/Sublio show --stat c57732d)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "mcp__claude_ai_Linear__save_milestone"
     ]
   }
 }

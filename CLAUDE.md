@@ -25,6 +25,8 @@ Predecessor project: `~/Desktop/jimakutsukeru` (Kotlin monolith).
 | [backend/06-observability.md](memory-bank/backend/06-observability.md) | OTEL + Alloy + Tempo + Prometheus + Grafana |
 | [backend/07-api-contracts.md](memory-bank/backend/07-api-contracts.md) | OpenAPI spec-first workflow + codegen per language |
 | [backend/08-scalability.md](memory-bank/backend/08-scalability.md) | High-load patterns, statelessness, resilience, load testing |
+| [backend/09-secrets-management.md](memory-bank/backend/09-secrets-management.md) | Vault: engines, AppRole, dynamic DB creds |
+| [backend/10-identity-provider.md](memory-bank/backend/10-identity-provider.md) | Keycloak: realm/client, auth-service BFF, JWKS verification |
 
 ### Frontend
 | File | Contents |
@@ -98,6 +100,22 @@ need to be built.
   not centralized yet. See backend/06-observability.md.
 - **Nexus (Sonatype Nexus OSS)** — private Docker registry + pull-through cache
   for Go modules/Gradle/PyPI, used at build time only, not on the request path.
+- **HashiCorp Vault for all secrets** — no secret values in `.env`/repo. KV v2 for
+  static secrets (Redis password, Keycloak client secret), the **database secrets
+  engine** for dynamic short-lived Postgres credentials per service, **AppRole**
+  for service auth to Vault. See backend/03-security.md and backend/09-secrets-management.md.
+- **Keycloak (OIDC) is the identity provider, JWT verification via JWKS** — Keycloak
+  owns password storage, JWT issuance/signing, and refresh tokens. It replaces the
+  custom bcrypt+JWT logic originally planned for auth-service. auth-service becomes
+  a thin BFF calling Keycloak's Admin API (register) and token endpoint (login/
+  refresh/logout) so the frontend's existing `/api/auth/*` contract doesn't change.
+  api-gateway verifies tokens against Keycloak's JWKS endpoint (cached, rotates by
+  `kid`) instead of a single static public key. See backend/01-services.md #2 and
+  backend/10-identity-provider.md.
+- **The refresh token is an HttpOnly cookie, never JSON — verified against the
+  actual frontend code, not assumed.** `/register` auto-logs-in and there's a real
+  `/logout` endpoint; both were missing from the original draft design. Get this
+  from backend/01-services.md #2 before touching auth-service, not from memory.
 
 **Frontend:**
 - **shadcn/ui** — UI components (do not switch to another library)

@@ -25,6 +25,13 @@ job-service      → THE interesting case (see below)
 subtitle-service → stateless already (each /process call is independent)
 ```
 
+**Secrets reinforce this rather than undermine it.** With Vault (see
+[[09-secrets-management]]), a new replica doesn't need a pre-shared static
+password baked into its image or environment — it authenticates to Vault itself
+via AppRole at boot and gets its own dynamic Postgres credential. Scaling out
+job-service to N replicas means N independent Vault logins, not N copies of one
+secret that now need distributing and rotating together.
+
 ### job-service SSE: stateless despite being a streaming connection
 
 An open `GET /jobs/:id/progress` connection is pinned to *one* instance for its

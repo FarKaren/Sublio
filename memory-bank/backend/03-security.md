@@ -10,9 +10,11 @@ DDoS / abuse                       Gateway                Rate limiting per IP
 Malicious file upload              media-service          Magic bytes validation
 Path traversal                     media-service          UUID names, path check
 SQL injection                      subtitle-service       Parameterized queries (JPA)
-Secret leakage via env             All services           Docker secrets / .env not in code
+Secret leakage via env             All services           Vault — no secret values in .env/code (see backend/09-secrets-management.md)
+Static/long-lived credential theft Postgres                Vault database secrets engine — short-lived, auto-rotating creds per service
 Compromise of one service          Internal network       Isolation via Docker network
-Password brute force               auth-service           bcrypt + rate limit on /login
+Password brute force               Keycloak               Keycloak's built-in per-realm brute-force
+                                                           detection + gateway rate limit on /login
 MITM                               External traffic       TLS everywhere
 Hung Python process                transcription-worker   Task timeout + Docker limits
 XSS                                frontend               CSP headers in gateway
@@ -58,25 +60,30 @@ Content-Security-Policy: default-src 'self'; media-src 'self' blob:
 
 ---
 
-## Layer 2: Auth Service (Go)
+## Layer 2: Auth Service (Go) — thin BFF, Keycloak owns identity
 
 ```
 Passwords:
-  └── bcrypt(password, cost=12)
-      The password itself is never stored
+  └── stored and hashed entirely by Keycloak (its own internal scheme) —
+      auth-service never persists a password or a hash anywhere; the plaintext
+      password passes through it once, in-memory, on its way to Keycloak's
+      token endpoint over the internal Docker network (never logged)
 
-JWT key pair:
-  ├── private.pem  → stored in auth-service (signs tokens)
-  └── public.pem   → mounted in api-gateway (verification only)
-  Private key NEVER leaves auth-service
+JWT (see backend/10-identity-provider.md for full detail):
+  ├── signed by Keycloak internally — Keycloak manages and rotates its own
+  │     signing key; no service, including auth-service, ever holds it
+  └── verified by api-gateway against Keycloak's JWKS endpoint (public keys,
+        by design — no Vault involvement needed for this)
 
 RefreshToken:
-  ├── generated as crypto/rand (32 bytes)
-  ├── stored as SHA-256 hash in PostgreSQL
-  └── on use → old one is invalidated, new one is issued
+  ├── issued and tracked by Keycloak (its own session/offline-token store)
+  └── on use → auth-service proxies grant_type=refresh_token to Keycloak,
+        which handles rotation/invalidation per its realm policy
 
 Brute force protection on /login:
-  └── rate limit: 10 req/min per IP at gateway level
+  ├── Keycloak's built-in brute-force detection (per-realm: max login failures,
+  │     temporary lockout) — this is Keycloak's job now, not auth-service's
+  └── rate limit: 10 req/min per IP at gateway level (unchanged, defense in depth)
 ```
 
 ---
@@ -172,27 +179,34 @@ Input data:
 
 ```
 PostgreSQL:
-  ├── password generated on first run (docker secret)
-  ├── each service has its OWN user with minimum privileges:
-  │     auth_user    → SELECT/INSERT/UPDATE on users, refresh_tokens
-  │     job_user     → SELECT/INSERT/UPDATE on jobs
-  │     subtitle_user → SELECT/INSERT on subtitles, subtitle_entries
+  ├── each DB-touching service gets a DYNAMIC, short-lived credential from
+  │     Vault's database secrets engine at boot — not a static password:
+  │       job_role       → SELECT/INSERT/UPDATE on jobs
+  │       subtitle_role  → SELECT/INSERT on subtitles, subtitle_entries
+  │       keycloak_role  → full access to the separate `keycloak` database
+  │                          (Keycloak manages its own schema/migrations)
+  ├── auth-service has NO Postgres role at all — it's stateless, no local
+  │     user table (see backend/01-services.md #2)
+  ├── lease TTL ~1h, renewed by the service at ~75% of TTL; Vault auto-revokes
+  │     the Postgres role if a lease isn't renewed (crashed/leaked service can't
+  │     hold a working credential forever)
   └── data encrypted at-rest (PostgreSQL pgcrypto or disk encryption)
 
 Redis:
-  ├── requirepass (AUTH password)
+  ├── password stored as a Vault KV v2 static secret, fetched at boot (AppRole)
   ├── bind 127.0.0.1 (only inside Docker network)
   └── TLS for connections from services
 
-Secrets (not stored in code or .env in repo):
-  ├── DB_PASSWORD
-  ├── REDIS_PASSWORD
-  ├── JWT_PRIVATE_KEY
-  └── JWT_PUBLIC_KEY
-  Stored in: docker-compose secrets or external secret manager
+Secrets — ALL secret values live in Vault, never in .env/code/docker-compose:
+  ├── Redis password, Nexus/Grafana admin passwords → Vault KV v2
+  ├── Postgres credentials → Vault database secrets engine (dynamic, see above)
+  ├── JWT signing → Vault transit engine (auth-service never holds the private key)
+  └── Every service authenticates to Vault via AppRole (role_id + one-time-use
+        wrapped secret_id), never a long-lived shared token
+  Full detail: backend/09-secrets-management.md
 
 .gitignore must include:
-  ├── *.pem
+  ├── *.pem            (only ever used transiently during initial Vault seeding)
   ├── .env
   └── /infra/certs/
 ```
@@ -213,7 +227,10 @@ Internet
    ▼
 [Business Logic]
    │
-   ├── [PostgreSQL] ← parameterized queries, min-privilege users
-   ├── [Redis]      ← AUTH, bind internal only
+   ├── [PostgreSQL] ← parameterized queries, dynamic Vault-issued creds
+   ├── [Redis]      ← AUTH (password from Vault), bind internal only
    └── [Volume]     ← UUID paths, no traversal
+
+Every arrow above into PostgreSQL/Redis is preceded by:
+[Service boot] → AppRole login to Vault → short-lived token → fetch secret/lease
 ```

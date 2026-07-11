@@ -14,7 +14,10 @@ Goal: docker-compose brings up PostgreSQL + Redis, services can connect to them
 
 Tasks:
   ├── [ ] infra/docker-compose.yml — PostgreSQL 16, Redis 7
-  ├── [ ] infra/postgres/init.sql  — CREATE TABLE users, jobs, subtitles, subtitle_entries
+  ├── [ ] infra/postgres/init.sql  — CREATE DATABASE keycloak (separate from
+  │         sublio); CREATE TABLE jobs, subtitles, subtitle_entries in sublio
+  │         (no users/refresh_tokens tables — Keycloak owns identity, see
+  │         backend/10-identity-provider.md)
   ├── [ ] infra/redis/redis.conf   — requirepass, bind
   ├── [ ] Shared volume sublio_data
   └── [ ] .env.example — variables without values (in repo), .env — real values (in .gitignore)
@@ -27,7 +30,7 @@ Verification:
 
 ---
 
-## Phase 0.5 — Tooling: Nexus, OpenAPI contracts, Observability skeleton
+## Phase 0.5 — Tooling: Nexus, OpenAPI contracts, Observability skeleton, Vault, Keycloak
 
 ```
 Goal: the cross-cutting infra exists BEFORE the first service is written, so
@@ -45,11 +48,29 @@ Tasks:
   │         filled in per-service in later phases) — see backend/07-api-contracts.md
   ├── [ ] infra/observability/ — alloy + tempo + prometheus + grafana
   │         (Compose profile "observability"), empty pipeline, nothing sending yet
+  ├── [ ] infra/vault/ — Vault server mode + file storage backend, NOT behind a
+  │         profile (every later phase needs it to boot) — see backend/09-secrets-management.md
+  │           ├── init + unseal (3-of-5 Shamir shares)
+  │           ├── enable KV v2 + database secrets engine (no transit — Keycloak
+  │           │     owns JWT signing, see backend/10-identity-provider.md)
+  │           ├── write one least-privilege policy per service
+  │           └── create one AppRole per service, revoke the root token after setup
+  ├── [ ] infra/keycloak/ — Keycloak container + its own Postgres database
+  │         (keycloak_role dynamic credential from Vault), NOT behind a profile
+  │         (auth-service needs it to boot) — see backend/10-identity-provider.md
+  │           ├── import realm-export.json ("sublio" realm, brute-force policy)
+  │           └── create the "auth-service-bff" confidential client, put its
+  │                 client_secret in Vault KV
   └── [ ] Verification:
             docker-compose --profile observability up
             → Grafana reachable at :3000, Prometheus + Tempo datasources provisioned
             docker-compose --profile tooling up
             → Nexus UI reachable at :8081
+            docker-compose up vault && ./infra/vault/init.sh
+            → vault status shows Sealed: false, vault secrets list shows both engines
+            docker-compose up keycloak
+            → realm "sublio" visible in the Keycloak admin console, JWKS endpoint
+              (/realms/sublio/protocol/openid-connect/certs) returns a key set
 
 Phase dependencies: Phase 0 (Docker network + volumes exist)
 ```
@@ -66,6 +87,8 @@ Why first: the longest part of the pipeline, needs to be debugged separately
 Tasks:
   ├── [ ] OTEL SDK init (opentelemetry-sdk, OTLP exporter to alloy:4317) +
   │         pybreaker around Redis calls — see backend/06-observability.md, 08-scalability.md
+  ├── [ ] Vault AppRole login (hvac) → fetch Redis password from KV v2 at boot
+  │         — see backend/09-secrets-management.md
   ├── [ ] transcription-worker/worker.py
   │         Redis BLPOP → parse job → transcribe → PUBLISH result
   ├── [ ] transcription-worker/transcribe.py
@@ -76,7 +99,7 @@ Tasks:
             redis-cli LPUSH sublio:job:queue '{"jobId":"test","filePath":"/data/test.mp4"}'
             → wait for kanji.srt in /data/processed/test/subtitles/
 
-Phase dependencies: Phase 0 (Redis running)
+Phase dependencies: Phase 0 (Redis running), Phase 0.5 (Vault up + AppRole configured)
 ```
 
 ---
@@ -95,45 +118,71 @@ Tasks:
   │         to api/subtitle-service.yaml
   ├── [ ] Actuator + micrometer-tracing-bridge-otel + resilience4j deps
   │         (06-observability.md, 08-scalability.md)
+  ├── [ ] spring-vault-core → AppRole login → dynamic Postgres credential from
+  │         Vault's database secrets engine (subtitle_role) — see backend/09-secrets-management.md
   ├── [ ] SrtParser.kt          ← parse .srt into List<SrtEntry>
   ├── [ ] KuromojService.kt     ← Kuromoji tokenizer → hiragana
   ├── [ ] SubtitleService.kt    ← orchestration
   ├── [ ] SubtitleController.kt ← implements generated SubtitleServiceApi interface
   ├── [ ] SubtitleRepository.kt ← JPA entities + Spring Data
   ├── [ ] application.yaml      ← DB, port 8084, OTLP endpoint
+  ├── [ ] Dockerfile (JDK build stage + JRE runtime) + push to Nexus
+  │         docker build -t localhost:8081/sublio/subtitle-service:dev .
+  │         docker push localhost:8081/sublio/subtitle-service:dev
   └── [ ] Manual test:
             curl -X POST localhost:8084/process \
               -d '{"jobId":"test","srtPath":"/data/.../kanji.srt"}'
             → {"subtitleId":"uuid"}
 
-Phase dependencies: Phase 0 (PostgreSQL), Phase 1 (kanji.srt file for test)
+Phase dependencies: Phase 0 (PostgreSQL), Phase 0.5 (Vault database secrets engine
+configured for subtitle_role), Phase 1 (kanji.srt file for test)
 ```
 
 ---
 
-## Phase 3 — auth-service (Go)
+## Phase 3 — auth-service (Go) — thin BFF over Keycloak
 
 ```
-Goal: /register + /login → JWT
+Goal: /register + /login → JWT, with Keycloak doing all the actual identity work.
+See backend/10-identity-provider.md for the full design and the ROPC trade-off.
 
 Tasks:
   ├── [ ] api/auth-service.yaml — write the OpenAPI spec first, run oapi-codegen
-  │         — see backend/07-api-contracts.md
-  ├── [ ] Generate RSA key pair (private.pem, public.pem)
-  │         openssl genrsa -out private.pem 2048
-  │         openssl rsa -in private.pem -pubout -out public.pem
+  │         — see backend/07-api-contracts.md (contract is UNCHANGED from the
+  │         original design — this is what makes it a drop-in replacement for
+  │         the frontend, which is already built against it)
+  ├── [ ] Vault AppRole login → fetch the "auth-service-bff" client_secret
+  │         from KV v2 at boot (the ONLY Vault secret this service needs —
+  │         no database role, no transit) — see backend/09-secrets-management.md
   ├── [ ] auth-service/cmd/auth/main.go
-  ├── [ ] handler/register.go  ← bcrypt hash, INSERT users
-  ├── [ ] handler/login.go     ← verify hash, issue JWT + refresh
-  ├── [ ] jwt/token.go         ← Sign RS256, Validate
-  ├── [ ] repository/user_repo.go ← pgx queries
+  ├── [ ] keycloak/client.go   ← Admin API client (service-account token) +
+  │         token endpoint client (ROPC + refresh grants) + logout call
+  ├── [ ] handler/register.go  ← creates the user via Keycloak Admin API, THEN
+  │         auto-logs-in (ROPC) — returns {user, accessToken}, matching /login
+  ├── [ ] handler/login.go     ← calls Keycloak token endpoint (grant_type=password),
+  │         sets refreshToken as an HttpOnly cookie (NEVER in the JSON body —
+  │         see backend/10-identity-provider.md, this was corrected against the
+  │         actual frontend code, not the original draft), returns {user, accessToken}
+  ├── [ ] handler/refresh.go   ← reads refreshToken from the HttpOnly cookie
+  │         (not a request body field), calls grant_type=refresh_token, and
+  │         RE-SETS the cookie with Keycloak's rotated refresh token
+  ├── [ ] handler/logout.go    ← reads the cookie, calls Keycloak's logout/revoke
+  │         endpoint, clears the cookie (Max-Age=0) — endpoint the frontend
+  │         actually calls, missing from the original design entirely
   ├── [ ] go.mod
+  ├── [ ] Dockerfile + push to Nexus
+  │         docker build -t localhost:8081/sublio/auth-service:dev .
+  │         docker push localhost:8081/sublio/auth-service:dev
   └── [ ] Manual test:
-            curl -X POST localhost:8081/register -d '{"email":"test@t.com","password":"pass"}'
-            curl -X POST localhost:8081/login -d '{"email":"test@t.com","password":"pass"}'
-            → {"accessToken":"eyJ..."}
+            curl -c cookies.txt -X POST localhost:8081/register -d '{"email":"test@t.com","password":"pass"}'
+            curl -b cookies.txt -X POST localhost:8081/refresh
+            curl -b cookies.txt -X POST localhost:8081/logout
+            → each returns {"user":{...},"accessToken":"eyJ..."} (register/refresh)
+              or 204 (logout); refreshToken never appears in any response body,
+              only in the Set-Cookie header
 
-Phase dependencies: Phase 0 (PostgreSQL)
+Phase dependencies: Phase 0.5 (Keycloak up with the "sublio" realm + client
+imported, Vault KV holding the client_secret — see backend/10-identity-provider.md)
 ```
 
 ---
@@ -149,17 +198,23 @@ Tasks:
   ├── [ ] api/media-service.yaml — write the OpenAPI spec first, run oapi-codegen
   │         (idempotency key on POST /upload — see backend/08-scalability.md)
   ├── [ ] Rewrite main.go — chi router, middleware, OTEL init (otelchi + otelhttp)
+  ├── [ ] Vault AppRole login → fetch Redis password from KV v2 at boot
+  │         — see backend/09-secrets-management.md
   ├── [ ] handler/upload.go   ← implements generated interface; read multipart,
   │         UUID folder, save, idempotency-key dedupe
   ├── [ ] handler/stream.go   ← HTTP 206 Range requests
   ├── [ ] storage/local.go    ← work with /data/ volume
   ├── [ ] queue/redis.go      ← LPUSH sublio:job:queue
   ├── [ ] security/validator.go ← magic bytes
+  ├── [ ] Dockerfile + push to Nexus
+  │         docker build -t localhost:8081/sublio/media-service:dev .
+  │         docker push localhost:8081/sublio/media-service:dev
   └── [ ] Manual test:
             curl -X POST localhost:8082/upload?jobId=xxx -F video=@test.mp4
             redis-cli LLEN sublio:job:queue → 1
 
-Phase dependencies: Phase 0 (Redis), Phase 1 (test that worker picks it up)
+Phase dependencies: Phase 0 (Redis), Phase 0.5 (Vault KV secret for Redis
+password), Phase 1 (test that worker picks it up)
 ```
 
 ---
@@ -179,6 +234,8 @@ Tasks:
   │         on POST /jobs — see backend/08-scalability.md), run oapi-codegen
   ├── [ ] OTEL init + otelchi middleware + gobreaker around subtitle-service
   │         calls and Postgres/Redis — see 06-observability.md, 08-scalability.md
+  ├── [ ] Vault AppRole login → dynamic Postgres credential (job_role) +
+  │         background lease-renewal goroutine — see backend/09-secrets-management.md
   ├── [ ] handler/job.go        ← implements generated interface; POST /jobs
   │         (idempotency key check), GET /jobs/:id
   ├── [ ] handler/sse.go        ← GET /jobs/:id/progress (SSE goroutines,
@@ -189,13 +246,17 @@ Tasks:
   ├── [ ] repository/job_repo.go ← pgx, pgxpool with bounded size
   ├── [ ] Verify in Grafana: a `POST /jobs` → SSE → DONE round trip produces
   │         one connected trace in Tempo and shows up in the RED dashboard
+  ├── [ ] Dockerfile + push to Nexus
+  │         docker build -t localhost:8081/sublio/job-service:dev .
+  │         docker push localhost:8081/sublio/job-service:dev
   └── [ ] Integration test:
             1. POST /jobs → jobId
             2. curl SSE /jobs/:id/progress (in separate terminal)
             3. redis-cli LPUSH sublio:job:queue {...jobId...}
             4. Watch events in SSE stream
 
-Phase dependencies: Phase 0, Phase 1, Phase 2 (subtitle-service)
+Phase dependencies: Phase 0, Phase 0.5 (Vault database secrets engine for
+job_role), Phase 1, Phase 2 (subtitle-service)
 ```
 
 ---
@@ -206,7 +267,11 @@ Phase dependencies: Phase 0, Phase 1, Phase 2 (subtitle-service)
 Goal: single entry point, JWT validation, rate limiting
 
 Tasks:
-  ├── [ ] middleware/auth.go      ← JWT RS256 (public.pem from auth-service)
+  ├── [ ] JWKS client (keyfunc) → fetch + cache Keycloak's public keys at boot
+  │         from /realms/sublio/protocol/openid-connect/certs, resolved by `kid`,
+  │         auto-refreshed on a cache miss — no Vault involved, no mounted
+  │         public.pem file — see backend/10-identity-provider.md
+  ├── [ ] middleware/auth.go      ← JWT RS256 verified against the JWKS cache
   ├── [ ] middleware/ratelimit.go ← chi rate limit
   ├── [ ] middleware/cors.go
   ├── [ ] proxy/router.go        ← httputil.ReverseProxy for each service,
@@ -214,6 +279,9 @@ Tasks:
   ├── [ ] handler/docs.go        ← serves api/*.yaml as JSON + Swagger UI at
   │         /api/docs — see backend/07-api-contracts.md
   ├── [ ] config/config.yaml     ← upstream addresses, rate limits
+  ├── [ ] Dockerfile + push to Nexus
+  │         docker build -t localhost:8081/sublio/api-gateway:dev .
+  │         docker push localhost:8081/sublio/api-gateway:dev
   └── [ ] TLS (for prod: Let's Encrypt or self-signed for dev)
 
 Phase dependencies: all previous services running
@@ -282,7 +350,7 @@ Phase dependencies: Phase 6 (full system running end-to-end), Phase 0.5
 Phase 0 (infra)
    │
    ▼
-Phase 0.5 (Nexus + OpenAPI contracts + observability skeleton)
+Phase 0.5 (Nexus + OpenAPI contracts + observability skeleton + Vault + Keycloak)
    │
    ├──────────────┬──────────────┐
    │              │              │

@@ -8,11 +8,13 @@ CLIENT             GATEWAY          AUTH        MEDIA        JOB         SUBTITL
    │                  │              │            │            │            │            │              │            │
    │── POST /login ──►│              │            │            │            │            │              │            │
    │                  │── forward ──►│            │            │            │            │              │            │
-   │                  │              │── verify ──────────────────────────────────────────────────────────────────►│
-   │                  │              │◄── user ──────────────────────────────────────────────────────────────────-─│
+   │                  │              │── grant_type=password ──────────────────────────────────────────────────────►│ KEYCLOAK
+   │                  │              │            (Keycloak verifies password + issues JWT — see backend/10-identity-provider.md;
+   │                  │              │◄── {access_token, refresh_token} ───────────────────────────────────────────│
    │                  │              │            │            │            │            │              │            │
    │                  │              │            │            │            │            │              │            │
-   │◄─ {accessToken} ─────────────────            │            │            │            │              │            │
+   │◄─ {user, accessToken} + Set-Cookie: refreshToken (HttpOnly, Secure) ────│            │            │              │            │
+   │   (refresh token NEVER appears in the JSON body — see backend/10-identity-provider.md)
    │                  │                           │            │            │            │              │            │
    ╔══════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
    ║  STEPS 2-3: Create job                                                                                       ║
@@ -123,31 +125,19 @@ Redis
 
 ## PostgreSQL tables schema
 
+**No `users` or `refresh_tokens` tables.** Keycloak is the only source of
+identity truth (see backend/10-identity-provider.md) — it has its own database
+(`keycloak`, separate from `sublio`) that this project never queries directly.
+`jobs.user_id` stores Keycloak's `sub` claim (a UUID Keycloak assigns), with no
+local FK — the referenced entity lives in an external system.
+
 ```
-┌─────────────────────────────────────────────────┐
-│ users                                           │
-├─────────────────────────────────────────────────┤
-│ id            UUID PK                           │
-│ email         VARCHAR(255) UNIQUE NOT NULL      │
-│ password_hash VARCHAR(255) NOT NULL             │
-│ created_at    TIMESTAMP                         │
-└─────────────────────────────────────────────────┘
-
-┌─────────────────────────────────────────────────┐
-│ refresh_tokens                                  │
-├─────────────────────────────────────────────────┤
-│ id            UUID PK                           │
-│ user_id       UUID FK → users.id               │
-│ token_hash    VARCHAR(255)                      │
-│ expires_at    TIMESTAMP                         │
-│ revoked       BOOLEAN DEFAULT FALSE             │
-└─────────────────────────────────────────────────┘
-
 ┌─────────────────────────────────────────────────┐
 │ jobs                                            │
 ├─────────────────────────────────────────────────┤
 │ id            UUID PK                           │
-│ user_id       UUID FK → users.id               │
+│ user_id       UUID  ← Keycloak "sub" claim,     │
+│                        NOT a local FK           │
 │ status        VARCHAR(50)  ← enum              │
 │ message       TEXT                             │
 │ file_path     TEXT                             │

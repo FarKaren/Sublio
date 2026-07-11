@@ -23,36 +23,75 @@ Internal port: 8080
 **Key decisions:**
 - Gateway does NOT contain business logic
 - Gateway does NOT access PostgreSQL or Redis directly
-- JWT public key (RS256) is loaded from a file at startup — not from auth-service on each request
+- JWT verification uses Keycloak's JWKS endpoint (fetched + cached at startup,
+  refreshed on `kid` cache miss) — NOT a per-request call to Keycloak or
+  auth-service. See backend/10-identity-provider.md.
 
 ---
 
-## 2. auth-service  [Go]
+## 2. auth-service  [Go]  — thin BFF over Keycloak
 
-**Role:** user management and JWT token issuance.
+**Role:** adapts Keycloak's OIDC API to the simple `{email, password}` contract the
+frontend already expects. See backend/10-identity-provider.md for the full design
+and why this shape was chosen over redirecting the frontend to Keycloak directly.
 
 ```
-API:
-  POST /register          { email, password }  →  201 { userId }
-  POST /login             { email, password }  →  200 { accessToken, refreshToken }
-  POST /refresh           { refreshToken }     →  200 { accessToken }
+API — matches the ACTUAL frontend implementation (sublio-web/src/services/authService.ts
+and api.ts), not the earlier draft that assumed a JSON refreshToken:
+  POST /register  { email, password }  →  201 { user: {id, email}, accessToken }
+                                            + Set-Cookie: refreshToken=...; HttpOnly; Secure; SameSite=Strict
+  POST /login     { email, password }  →  200 { user, accessToken } + same Set-Cookie
+  POST /refresh   (empty body — refresh token comes from the HttpOnly cookie,
+                    sent automatically by the browser via withCredentials)
+                                        →  200 { user, accessToken } + REFRESHED Set-Cookie
+  POST /logout    (empty body, cookie-authenticated)
+                                        →  204, clears the cookie + revokes the
+                                            session at Keycloak
 
-Storage:
-  PostgreSQL
-    ├── table users: id, email, password_hash (bcrypt), created_at
-    └── table refresh_tokens: id, user_id, token_hash, expires_at, revoked
+The refresh token NEVER appears in a JSON response body — only as an HttpOnly
+cookie the browser can't read via JS. This is more secure than the original
+draft (JSON-exposed refresh tokens are readable by any XSS payload); the
+frontend was already built this way, so the backend design was corrected to
+match it, not the other way around.
 
-JWT:
-  ├── algorithm: RS256 (asymmetric)
-  ├── accessToken TTL: 15 minutes
-  ├── refreshToken TTL: 30 days
-  └── payload: { sub: userId, email, iat, exp }
+Behind the API:
+  POST /register  → Keycloak Admin REST API creates the user, THEN an
+                     immediate ROPC token request logs them in — register
+                     auto-logs-in, it does not just create an inert account
+  POST /login      → Keycloak token endpoint: grant_type=password (ROPC)
+  POST /refresh    → Keycloak token endpoint: grant_type=refresh_token — Keycloak
+                     rotates the refresh token on use, so the cookie MUST be
+                     re-set with the new value on every refresh, not just once
+  POST /logout     → Keycloak's logout/revoke endpoint, invalidating the
+                     session server-side, then clears the cookie
+
+Storage: NONE — auth-service holds no database, no user table, no session.
+  It is a pure protocol adapter; Keycloak is the only source of truth for identity.
+
+JWT (issued and signed by Keycloak, not by this service):
+  ├── algorithm: RS256, key managed and rotated by Keycloak internally
+  ├── accessToken TTL: 15 minutes (realm setting)
+  ├── refreshToken TTL: 30 days (realm setting)
+  └── payload: { sub: keycloakUserId, email, iat, exp, ... } — verified via JWKS
+        at api-gateway, see backend/10-identity-provider.md
 ```
 
 **Security:**
-- Passwords stored as bcrypt hash (cost=12)
-- RefreshToken stored as SHA-256 hash (not the token itself)
-- On compromise: revoke via refresh_tokens table
+- Password storage, hashing, and brute-force detection are entirely Keycloak's
+  responsibility (Keycloak has built-in brute-force protection per realm) —
+  auth-service never sees a password hash, only the plaintext password for the
+  single call it proxies to Keycloak's token endpoint over the internal network.
+- auth-service authenticates to Keycloak's Admin API using a confidential client
+  (client_id + client_secret, the secret pulled from Vault — see backend/09-secrets-management.md).
+- **Trade-off, stated plainly:** using the Resource Owner Password Credentials
+  (ROPC) grant here keeps the frontend's existing `/api/auth/login` contract
+  intact (email+password in one call), but ROPC is a discouraged OAuth2 grant
+  (removed in OAuth 2.1) because the client handles the raw password. The more
+  correct long-term shape is Authorization Code + PKCE with the frontend
+  redirecting to Keycloak's login page — documented here as the recommended
+  upgrade, not implemented now, since it requires frontend changes outside the
+  current scope (see memory-bank/frontend docs — frontend is already built
+  against the simpler contract).
 
 ---
 

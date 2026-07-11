@@ -27,15 +27,15 @@ sublio-web               TypeScript  5.x       Type-safe frontend
 api-gateway:
   ├── github.com/go-chi/chi/v5         ← HTTP router
   ├── github.com/go-chi/httprate       ← rate limiting
-  ├── github.com/golang-jwt/jwt/v5     ← JWT RS256 validation
+  ├── github.com/golang-jwt/jwt/v5     ← JWT parsing/validation
+  ├── github.com/MicahParks/keyfunc/v3 ← JWKS client: fetches + caches Keycloak's
+  │                                       public keys, resolves by `kid`, auto-refreshes
   └── golang.org/x/net/http/httputil   ← reverse proxy (stdlib)
 
-auth-service:
+auth-service:  (thin BFF — no JWT library, no bcrypt, no DB driver: Keycloak
+                does all of that. See backend/10-identity-provider.md)
   ├── github.com/go-chi/chi/v5
-  ├── github.com/golang-jwt/jwt/v5     ← JWT issuance
-  ├── golang.org/x/crypto/bcrypt       ← password hashing
-  ├── github.com/jackc/pgx/v5          ← PostgreSQL driver
-  └── github.com/google/uuid           ← UUID generation
+  └── net/http                         ← calls Keycloak's Admin API + token endpoint (stdlib)
 
 sublio-media-service:
   ├── github.com/go-chi/chi/v5
@@ -68,6 +68,10 @@ Resilience (see backend/08-scalability.md):
 
 OpenAPI codegen (see backend/07-api-contracts.md):
   └── github.com/oapi-codegen/oapi-codegen/v2  ← generates chi-compatible server interfaces + DTOs from api/*.yaml
+
+Secrets (see backend/09-secrets-management.md):
+  ├── github.com/hashicorp/vault/api     ← Vault client
+  └── github.com/hashicorp/vault/api/auth/approle  ← AppRole login helper
 ```
 
 ---
@@ -99,6 +103,9 @@ dependencies {
 
     // Resilience (see backend/08-scalability.md)
     implementation("io.github.resilience4j:resilience4j-spring-boot3")
+
+    // Secrets (see backend/09-secrets-management.md)
+    implementation("org.springframework.vault:spring-vault-core:3.1.1")
 }
 
 // OpenAPI codegen (see backend/07-api-contracts.md) — plugin, not a dependency:
@@ -122,6 +129,9 @@ opentelemetry-exporter-otlp==1.27.0
 
 # Resilience (see backend/08-scalability.md)
 pybreaker==1.2.0        # circuit breaker around Redis calls
+
+# Secrets (see backend/09-secrets-management.md)
+hvac==2.3.0             # Vault client, AppRole login
 ```
 
 ---
@@ -170,6 +180,11 @@ Redis           redis:7-alpine           Queue + pub/sub
 Nginx           nginx:alpine             Frontend static file serving
 Nexus           sonatype/nexus3          Private Docker registry + Go/Gradle/PyPI
                                          pull-through cache (build time only)
+Vault           hashicorp/vault          Secrets: KV v2, database secrets engine
+                                         — see 09-secrets-management.md
+Keycloak        quay.io/keycloak/keycloak Identity provider: OIDC, JWKS, password
+                                         storage, brute-force protection —
+                                         see 10-identity-provider.md
 Grafana Alloy   grafana/alloy            OTLP collector (traces + metrics)
 Tempo           grafana/tempo            Trace storage/query
 Prometheus      prom/prometheus          Metrics storage/query
@@ -181,11 +196,43 @@ MinIO           minio/minio              S3-compatible storage
 
 **Why Nexus instead of pulling straight from Docker Hub / proxy.golang.org / Maven Central / PyPI:**
 ```
-├── One private place to publish the 5 in-house service images
+├── One private place to publish all 6 in-house service images
 ├── Pull-through cache → CI doesn't re-download the same base images/deps every run
 ├── Survives upstream registry rate limits (Docker Hub anonymous pull limits)
 └── Standard piece of real company infra — worth knowing how to run it
 ```
+
+**Every service has its own Dockerfile and its own image — no shared "monolith"
+image, no service sharing another's Dockerfile.** Each is built and pushed to
+Nexus's `docker-hosted` repo independently, so any one service can be rebuilt,
+retagged, and redeployed without touching the others:
+
+```
+docker build -t localhost:8081/sublio/{service}:{tag} ./{service-dir}
+docker push localhost:8081/sublio/{service}:{tag}
+
+# one line per service, e.g.:
+docker build -t localhost:8081/sublio/job-service:dev ./job-service
+docker push localhost:8081/sublio/job-service:dev
+```
+
+```
+Service                  Image name (Nexus docker-hosted)
+──────────────────────────────────────────────────────────
+api-gateway              sublio/api-gateway
+auth-service             sublio/auth-service
+sublio-media-service     sublio/media-service
+job-service              sublio/job-service
+subtitle-service         sublio/subtitle-service
+transcription-worker     sublio/transcription-worker
+```
+
+`docker-compose.yml` references these images by tag (`image: localhost:8081/sublio/{service}:${TAG:-dev}`)
+rather than building in place with `build:` once this is wired up — `build:`
+is fine for day-to-day local dev, but pulling a tagged image from Nexus is what
+actually exercises the "each service deploys independently" story (e.g. bumping
+just `job-service`'s tag and restarting only that container, per the
+[[08-scalability]] horizontal-scaling exercise).
 
 ---
 
@@ -202,6 +249,8 @@ subtitle-service         8084              —
 transcription-worker     —                 — (no HTTP)
 PostgreSQL               5432              —
 Redis                    6379              —
+Keycloak                 8080              localhost:8090 (admin console, dev only)
+Vault                    8200              —
 ```
 
 ---
@@ -221,6 +270,7 @@ docker-compose.yml
     ├── postgres_data      ← PostgreSQL data
     ├── redis_data         ← Redis data
     ├── nexus_data         ← Nexus blob store (build-time only, own compose profile)
+    ├── vault_data         ← Vault file storage backend (KV, leases, policies)
     ├── tempo_data         ← trace storage
     ├── prometheus_data    ← metrics storage (short retention — this is a dev box, not a TSDB cluster)
     └── grafana_data       ← dashboards/datasources
@@ -229,7 +279,10 @@ docker-compose.yml
 **Compose profiles:** Nexus and the observability stack are heavy for a laptop
 running everything at once. Put them behind Compose profiles (`--profile tooling`,
 `--profile observability`) so day-to-day `docker-compose up` stays fast, and you
-opt in when you actually want registry caching or dashboards running.
+opt in when you actually want registry caching or dashboards running. Vault is
+the one exception — it's NOT behind a profile, since every service needs it to
+even boot (fetches its DB credentials/secrets at startup). It comes up as part
+of the default `docker-compose up`, same as Postgres/Redis.
 
 ---
 

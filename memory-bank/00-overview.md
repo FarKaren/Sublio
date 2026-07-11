@@ -25,19 +25,21 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │   │   └── proxy/
 │   │       └── router.go              ← reverse proxy to services
 │   ├── config/config.yaml
+│   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
 │   └── go.mod
 │
-├── auth-service/                      [Go]
+├── auth-service/                      [Go]  ← thin BFF over Keycloak, see backend/10-identity-provider.md
 │   ├── cmd/auth/main.go
 │   ├── internal/
 │   │   ├── handler/
-│   │   │   ├── register.go
-│   │   │   └── login.go
-│   │   ├── jwt/
-│   │   │   └── token.go               ← JWT issuance/validation
-│   │   └── repository/
-│   │       └── user_repo.go           ← PostgreSQL
-│   └── go.mod
+│   │   │   ├── register.go            ← calls Keycloak Admin API
+│   │   │   ├── login.go               ← calls Keycloak token endpoint
+│   │   │   ├── refresh.go             ← reads HttpOnly cookie, not JSON
+│   │   │   └── logout.go              ← calls Keycloak's logout/revoke endpoint
+│   │   └── keycloak/
+│   │       └── client.go              ← Admin API + token endpoint HTTP client
+│   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
+│   └── go.mod                          (no PostgreSQL — stateless, no local user table)
 │
 ├── sublio-media-service/              [Go]  ← already created
 │   ├── cmd/sublio/main.go             ← skeleton (rewrite)
@@ -51,6 +53,7 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │   │   │   └── redis.go               ← publish tasks to Redis
 │   │   └── security/
 │   │       └── validator.go           ← magic bytes + size
+│   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
 │   └── go.mod
 │
 ├── job-service/                       [Go]
@@ -65,23 +68,27 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │   │   │   └── redis_sub.go           ← Redis pub/sub subscription
 │   │   └── repository/
 │   │       └── job_repo.go            ← PostgreSQL
+│   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
 │   └── go.mod
 │
 ├── subtitle-service/                  [Kotlin / Spring Boot]
-│   └── src/main/kotlin/sublio/
-│       ├── controller/
-│       │   └── SubtitleController.kt  ← POST /process, GET /subtitles/:id
-│       ├── service/
-│       │   ├── KuromojService.kt      ← kanji → hiragana (Kuromoji)
-│       │   ├── SrtParser.kt           ← .srt file parsing
-│       │   └── SubtitleService.kt     ← orchestration
-│       └── repository/
-│           └── SubtitleRepository.kt  ← PostgreSQL (JPA)
+│   ├── src/main/kotlin/sublio/
+│   │   ├── controller/
+│   │   │   └── SubtitleController.kt  ← POST /process, GET /subtitles/:id
+│   │   ├── service/
+│   │   │   ├── KuromojService.kt      ← kanji → hiragana (Kuromoji)
+│   │   │   ├── SrtParser.kt           ← .srt file parsing
+│   │   │   └── SubtitleService.kt     ← orchestration
+│   │   └── repository/
+│   │       └── SubtitleRepository.kt  ← PostgreSQL (JPA)
+│   ├── Dockerfile                      ← own image (JDK build stage + JRE runtime),
+│   │                                      pushed to Nexus docker-hosted
+│   └── build.gradle.kts
 │
 ├── transcription-worker/              [Python]
 │   ├── worker.py                      ← BLPOP from Redis, run transcription
 │   ├── transcribe.py                  ← Faster-Whisper inference
-│   ├── Dockerfile
+│   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
 │   └── requirements.txt
 │
 ├── sublio-web/                        [React / TypeScript + shadcn/ui]
@@ -96,22 +103,30 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 └── infra/
     ├── docker-compose.yml             ← entire stack with one command
     ├── postgres/
-    │   └── init.sql                   ← schemas: users, jobs, subtitles
+    │   └── init.sql                   ← CREATE DATABASE keycloak (separate);
+    │                                      jobs, subtitles, subtitle_entries in sublio
+    │                                      (no users/refresh_tokens — Keycloak owns identity)
     ├── redis/
     │   └── redis.conf                 ← AUTH + TLS
     ├── certs/
     │   └── ...                        ← TLS certificates for gateway
     ├── nexus/
     │   └── ...                        ← Sonatype Nexus data volume (Docker/Go/Gradle/PyPI proxy)
-    └── observability/
-        ├── alloy/
-        │   └── config.alloy           ← OTLP receiver → routes to Tempo + Prometheus
-        ├── tempo/
-        │   └── tempo.yaml             ← trace storage config
-        ├── prometheus/
-        │   └── prometheus.yml         ← scrape config (pulls from Alloy)
-        └── grafana/
-            └── dashboards/            ← per-service dashboards (provisioned)
+    ├── vault/
+    │   ├── config.hcl                 ← file storage backend, listener config
+    │   └── policies/                  ← one least-privilege policy per service
+    ├── observability/
+    │   ├── alloy/
+    │   │   └── config.alloy           ← OTLP receiver → routes to Tempo + Prometheus
+    │   ├── tempo/
+    │   │   └── tempo.yaml             ← trace storage config
+    │   ├── prometheus/
+    │   │   └── prometheus.yml         ← scrape config (pulls from Alloy)
+    │   └── grafana/
+    │       └── dashboards/            ← per-service dashboards (provisioned)
+    └── keycloak/
+        └── realm-export.json          ← "sublio" realm, confidential client, brute-force policy
+                                          (imported on first boot — see backend/10-identity-provider.md)
 ```
 
 ---
@@ -134,14 +149,21 @@ The only entry point is `api-gateway`. Internal services are not accessible from
               ▼                ▼            ▼
     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
     │ auth-service │  │ media-service│  │  job-service │
-    │    [Go]      │  │    [Go]      │  │    [Go]      │
+    │  [Go, BFF]   │  │    [Go]      │  │    [Go]      │
     │              │  │              │  │              │
     │ /register    │  │ /upload      │  │ /jobs        │
     │ /login       │  │ /video/:id   │  │ /jobs/:id    │
-    │              │  │   streaming  │  │ /jobs/:id/   │
-    │ → PostgreSQL │  │ → storage    │  │   progress   │
-    │ → JWT issue  │  │ → Redis PUSH │  │ → SSE stream │
-    └──────────────┘  └──────────────┘  └──────┬───────┘
+    │ /refresh     │  │   streaming  │  │ /jobs/:id/   │
+    │ → Keycloak   │  │ → storage    │  │   progress   │
+    │   Admin API +│  │ → Redis PUSH │  │ → SSE stream │
+    │   token endpt│  │              │  │              │
+    └──────┬───────┘  └──────────────┘  └──────┬───────┘
+           │ OIDC
+           ▼
+    ┌──────────────┐
+    │  keycloak    │  ← owns password storage, JWT signing, JWKS
+    │  (own DB)    │
+    └──────────────┘
                                                 │
                         ┌───────────────────────┘
                         │ HTTP (internal)
@@ -201,8 +223,12 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │  job-service       :8083                            │
 │  subtitle-service  :8084                            │
 │  transcription-worker  (no HTTP port)               │
+│  keycloak          :8080 (internal only — admin     │
+│                     console on localhost:8090 for    │
+│                     dev convenience, not proxied)    │
 │                                                     │
-│  PostgreSQL        :5432                            │
+│  PostgreSQL        :5432  (databases: sublio,        │
+│                     keycloak)                        │
 │  Redis             :6379                            │
 └─────────────────────┬───────────────────────────────┘
                       │ OTLP (grpc :4317 / http :4318)
@@ -225,6 +251,17 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │           PyPI. CI and `docker build` point here     │
 │           instead of hitting public registries        │
 │           directly on every build.                   │
+└─────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────┐
+│  SECRETS ZONE (internal only, every service reads    │
+│  from it once at boot — never on the request path)  │
+│                                                     │
+│  vault  :8200 — KV v2 (static secrets) + database    │
+│           secrets engine (dynamic Postgres creds) +  │
+│           transit engine (JWT signing for            │
+│           auth-service). Services authenticate via   │
+│           AppRole, not a shared token.                │
 └─────────────────────────────────────────────────────┘
 ```
 

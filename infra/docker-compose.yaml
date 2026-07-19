@@ -1,0 +1,44 @@
+services:
+
+  postgres:
+    image: postgres:17
+    container_name: postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - sublio-network
+
+  liquibase:
+    image: liquibase/liquibase:4.29
+    container_name: liquibase
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      - --changelog-file=changelog-master.yaml
+      - --url=jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+      - --username=${POSTGRES_USER}
+      - --password=${POSTGRES_PASSWORD}
+      - update
+    volumes:
+      - ./postgres/liquibase/db/changelog/changelog-master.yaml:/liquibase/changelog-master.yaml
+      - ./postgres/liquibase/db/changelog/changesets:/liquibase/changesets
+    networks:
+      - sublio-network
+
+volumes:
+  postgres_data:
+
+networks:
+  sublio-network:

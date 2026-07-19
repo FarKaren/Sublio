@@ -1,0 +1,65 @@
+databaseChangeLog:
+  - changeSet:
+      id: 004-create-subtitle-entries-table
+      author: you
+      comment: Строки субтитров (subtitle_entries), привязаны к subtitles
+      changes:
+        - createTable:
+            schemaName: sublio
+            tableName: subtitle_entries
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: subtitle_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: seq_num
+                  type: INT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: start_time
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: end_time
+                  type: VARCHAR(20)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: kanji_text
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: hiragana_text
+                  type: TEXT
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableSchemaName: sublio
+            baseTableName: subtitle_entries
+            baseColumnNames: subtitle_id
+            referencedTableSchemaName: sublio
+            referencedTableName: subtitles
+            referencedColumnNames: id
+            constraintName: fk_subtitle_entries_subtitle_id
+        - createIndex:
+            indexName: idx_subtitle_entries_subtitle_id
+            schemaName: sublio
+            tableName: subtitle_entries
+            columns:
+              - column:
+                  name: subtitle_id
+      rollback:
+        - dropTable:
+            tableName: subtitle_entries

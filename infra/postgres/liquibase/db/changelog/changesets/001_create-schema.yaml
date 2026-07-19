@@ -1,0 +1,11 @@
+databaseChangeLog:
+  - changeSet:
+      id: 001-create-schema
+      author: Karen
+      comment: Base schema for sublio
+      changes:
+        - sql:
+            sql: CREATE SCHEMA IF NOT EXISTS sublio;
+      rollback:
+        - sql:
+            sql: DROP SCHEMA IF EXISTS sublio CASCADE;

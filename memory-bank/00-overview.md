@@ -106,15 +106,21 @@ The only entry point is `api-gateway`. Internal services are not accessible from
     │   └── init.sql                   ← CREATE DATABASE keycloak (separate);
     │                                      jobs, subtitles, subtitle_entries in sublio
     │                                      (no users/refresh_tokens — Keycloak owns identity)
-    ├── redis/
-    │   └── redis.conf                 ← AUTH + TLS
     ├── certs/
     │   └── ...                        ← TLS certificates for gateway
     ├── nexus/
     │   └── ...                        ← Sonatype Nexus data volume (Docker/Go/Gradle/PyPI proxy)
     ├── vault/
     │   ├── config.hcl                 ← file storage backend, listener config
-    │   └── policies/                  ← one least-privilege policy per service
+    │   ├── policies/                  ← one least-privilege policy per service,
+    │   │                                  including redis-bootstrap/postgres-bootstrap (FAR-96)
+    │   ├── agents/
+    │   │   ├── redis-agent.hcl        ← Vault Agent sidecar config (FAR-54)
+    │   │   └── postgres-agent.hcl
+    │   └── templates/
+    │       ├── redis.conf.tpl         ← rendered into redis.conf at container start —
+    │       │                              requirepass comes from Vault KV, never a static file (FAR-56)
+    │       └── postgres_password.tpl
     ├── observability/
     │   ├── alloy/
     │   │   └── config.alloy           ← OTLP receiver → routes to Tempo + Prometheus
@@ -184,12 +190,16 @@ The only entry point is `api-gateway`. Internal services are not accessible from
     │                                                              │
     │   ┌─────────────┐   ┌─────────────┐   ┌──────────────────┐ │
     │   │ PostgreSQL  │   │    Redis    │   │  Shared Volume   │ │
-    │   │             │   │             │   │  (video + SRT)   │ │
-    │   │ ·users      │   │ ·job queue  │   │                  │ │
-    │   │ ·jobs       │   │ ·pub/sub    │   │  /data/          │ │
-    │   │ ·subtitles  │   │  progress   │   │  ├── videos/     │ │
-    │   └─────────────┘   └──────┬──────┘   │  └── processed/  │ │
-    │                            │          └──────────────────┘ │
+    │   │ (sublio db, │   │             │   │  (video + SRT)   │ │
+    │   │  no users — │   │ ·job queue  │   │                  │ │
+    │   │  Keycloak   │   │ ·pub/sub    │   │  /data/          │ │
+    │   │  owns that) │   │  progress   │   │  ├── videos/     │ │
+    │   │ ·jobs       │   │             │   │  └── processed/  │ │
+    │   │ ·subtitles  │   │             │   │                  │ │
+    │   │ ·subtitle_  │   │             │   │                  │ │
+    │   │  entries    │   │             │   │                  │ │
+    │   └─────────────┘   └──────┬──────┘   └──────────────────┘ │
+    │                            │                                │
     └────────────────────────────┼──────────────────────────────-┘
                                  │ BLPOP (blocking)
                                  ▼
@@ -258,10 +268,12 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │  from it once at boot — never on the request path)  │
 │                                                     │
 │  vault  :8200 — KV v2 (static secrets) + database    │
-│           secrets engine (dynamic Postgres creds) +  │
-│           transit engine (JWT signing for            │
-│           auth-service). Services authenticate via   │
-│           AppRole, not a shared token.                │
+│           secrets engine (dynamic Postgres creds).   │
+│           No transit engine — Keycloak signs and     │
+│           rotates its own JWTs internally. Services  │
+│           (incl. the redis/postgres bootstrap Vault  │
+│           Agent sidecars) authenticate via AppRole,  │
+│           not a shared token.                        │
 └─────────────────────────────────────────────────────┘
 ```
 

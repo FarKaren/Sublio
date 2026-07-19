@@ -1,0 +1,68 @@
+databaseChangeLog:
+  - changeSet:
+      id: 002-create-jobs-table
+      author: Karen
+      comment: Jobs able (jobs)
+      changes:
+        - createTable:
+            schemaName: sublio
+            tableName: jobs
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: user_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: idempotency_key
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: status
+                  type: VARCHAR(50)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: message
+                  type: TEXT
+              - column:
+                  name: file_path
+                  type: TEXT
+              - column:
+                  name: subtitle_id
+                  type: UUID
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addUniqueConstraint:
+            schemaName: sublio
+            tableName: jobs
+            columnNames: user_id, idempotency_key
+            constraintName: uq_jobs_user_id_idempotency_key
+        - createIndex:
+            indexName: idx_jobs_user_id
+            schemaName: sublio
+            tableName: jobs
+            columns:
+              - column:
+                  name: user_id
+      rollback:
+        - dropTable:
+            tableName: jobs

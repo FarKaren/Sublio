@@ -1,0 +1,39 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-subtitles-table
+      author: Karen
+      comment: Subtitles table connected with jobs table
+      changes:
+        - createTable:
+            schemaName: sublio
+            tableName: subtitles
+            columns:
+              - column:
+                  name: id
+                  type: UUID
+                  defaultValueComputed: gen_random_uuid()
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: job_id
+                  type: UUID
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMPTZ
+                  defaultValueComputed: now()
+                  constraints:
+                    nullable: false
+        - addForeignKeyConstraint:
+            baseTableSchemaName: sublio
+            baseTableName: subtitles
+            baseColumnNames: job_id
+            referencedTableSchemaName: sublio
+            referencedTableName: jobs
+            referencedColumnNames: id
+            constraintName: fk_subtitles_job_id
+      rollback:
+        - dropTable:
+            tableName: subtitles

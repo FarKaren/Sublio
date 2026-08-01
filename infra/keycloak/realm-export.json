@@ -1,0 +1,12 @@
+{
+  "realm": "sublio",
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "accessTokenLifespan": 900,
+  "clients": [{
+    "clientId": "auth-service-bff",
+    "publicClient": false,
+    "serviceAccountsEnabled": true,
+    "directAccessGrantsEnabled": true
+  }]
+}

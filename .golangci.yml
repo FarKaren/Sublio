@@ -1,0 +1,36 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: standard
+  enable:
+    - revive
+    - gosec
+    - bodyclose
+    - unparam
+    - unconvert
+    - goconst
+    - dupl
+    - misspell
+    - contextcheck
+    - containedctx
+    - sqlclosecheck
+    - noctx
+    - errorlint
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    gofmt:
+      simplify: true
+      rewrite-rules:
+        - pattern: 'interface{}'
+          replacement: 'any'
+  exclusions:
+    paths:
+      - vendor
+

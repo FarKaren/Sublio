@@ -1,11 +1,130 @@
 services:
 
+  #---------VAULT---------
+  vault:
+    image: hashicorp/vault:1.17
+    container_name: vault
+    ports:
+      - "8200:8200"
+    volumes:
+      - ./vault/vault-server-${ENV}.hcl:/vault/config/vault.hcl:ro
+      - vault-data:/vault/file
+    cap_add:
+      - IPC_LOCK
+    command: server
+    healthcheck:
+      # 501 = sealed, это ОЖИДАЕМО до unseal - считаем это "живым" для healthcheck,
+      # реальная готовность к работе появится только после unseal (шаг руками)
+      test: [ "CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200' || exit 1" ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - sublio-network
+
+  # --- Bootstrap: выдаёт свежий role-id/secret-id перед стартом агента ---
+  vault-bootstrap-redis:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap-redis
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${BOOTSTRAP_TOKEN}
+    entrypoint: [ "/scripts/bootstrap-approle.sh", "redis-role", "/vault/config" ]
+    volumes:
+      - ./vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - vault-approle-redis:/vault/config
+    networks:
+      - sublio-network
+    restart: "no"
+
+  vault-bootstrap-postgres:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap-postgres
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${BOOTSTRAP_TOKEN}
+    entrypoint: [ "/scripts/bootstrap-approle.sh", "postgres-role", "/vault/config" ]
+    volumes:
+      - ./vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - vault-approle-postgres:/vault/config
+    networks:
+      - sublio-network
+    restart: "no"
+
+  # --- Vault Agent: логинится через AppRole, рендерит секрет в файл ---
+  vault-agent-redis:
+    image: hashicorp/vault:1.17
+    container_name: vault-agent-redis
+    entrypoint: [ "vault" ]
+    depends_on:
+      vault-bootstrap-redis:
+        condition: service_completed_successfully
+    volumes:
+      - ./vault/agents/redis-agent.hcl:/vault/agents/redis-agent.hcl:ro
+      - ./vault/templates/redis.conf.tpl:/vault/templates/redis.conf.tpl:ro
+      - redis-config-rendered:/vault/rendered
+      - vault-approle-redis:/vault/config
+    command: agent -config=/vault/agents/redis-agent.hcl
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /vault/rendered/redis.conf" ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      - sublio-network
+
+  vault-agent-postgres:
+    image: hashicorp/vault:1.17
+    container_name: vault-agent-postgres
+    entrypoint: [ "vault" ]
+    depends_on:
+      vault-bootstrap-postgres:
+        condition: service_completed_successfully
+    volumes:
+      - ./vault/agents/postgres-agent.hcl:/vault/agents/postgres-agent.hcl:ro
+      - ./vault/templates/postgres_password.tpl:/vault/templates/postgres_password.tpl:ro
+      - postgres-config-rendered:/vault/rendered
+      - vault-approle-postgres:/vault/config
+    command: agent -config=/vault/agents/postgres-agent.hcl
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /vault/rendered/postgres_password.txt" ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      - sublio-network
+
+  # --- Реальные сервисы: ждут готового рендера от своего агента ---
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    depends_on:
+      vault-agent-redis:
+        condition: service_healthy
+    command: redis-server /usr/local/etc/redis/redis.conf
+    volumes:
+      - redis-config-rendered:/usr/local/etc/redis
+      - redis_data:/data
+    networks:
+      - sublio-network
+
   postgres:
     image: postgres:17
     container_name: postgres
+    depends_on:
+      vault-agent-postgres:
+        condition: service_healthy
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password.txt
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "5432:5432"
@@ -16,6 +135,7 @@ services:
       retries: 20
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - postgres-config-rendered:/run/secrets:ro
     networks:
       - sublio-network
 
@@ -25,19 +145,31 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      vault-agent-postgres:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
     command:
-      - --changelog-file=changelog-master.yaml
-      - --url=jdbc:postgresql://postgres:5432/${POSTGRES_DB}
-      - --username=${POSTGRES_USER}
-      - --password=${POSTGRES_PASSWORD}
-      - update
+      - >
+        liquibase
+        --changelog-file=changelog-master.yaml
+        --url=jdbc:postgresql://postgres:5432/${POSTGRES_DB}
+        --username=${POSTGRES_USER}
+        --password="$(cat /run/secrets/postgres_password.txt)"
+        update
     volumes:
       - ./postgres/liquibase/db/changelog/changelog-master.yaml:/liquibase/changelog-master.yaml
       - ./postgres/liquibase/db/changelog/changesets:/liquibase/changesets
+      - postgres-config-rendered:/run/secrets:ro
     networks:
       - sublio-network
 
 volumes:
+  vault-data:
+  vault-approle-redis:
+  vault-approle-postgres:
+  redis-config-rendered:
+  postgres-config-rendered:
+  redis_data:
   postgres_data:
 
 networks:

@@ -12,7 +12,25 @@
       "Bash(git -C /Users/karen/Desktop/Sublio show --stat c57732d)",
       "Bash(node -e ' *)",
       "mcp__claude_ai_Linear__save_milestone",
-      "Bash(docker compose *)"
+      "Bash(docker compose *)",
+      "Bash(docker exec *)",
+      "Bash(sh -c 'wget -qO- http://127.0.0.1:1234/nonexistent?standbyok=true&sealedcode=200 || exit 1')",
+      "Bash(echo \"EXIT CODE: $?\")",
+      "Bash(git status *)",
+      "Bash(docker cp *)",
+      "Bash(export VAULT_ADDR=http://127.0.0.1:8200)",
+      "Bash(export VAULT_TOKEN=hvs.N5LsdFlkbeEfZSpwzI4830YA)",
+      "Bash(vault/scripts/apply-vault-config.sh)",
+      "Bash(docker run *)",
+      "Bash(echo \"exit code: $?\")",
+      "Bash(sh -c \"wget -qO- 'http://127.0.0.1:1/v1/sys/health?standbyok=true&sealedcode=200' || exit 1\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(sh -c \"wget -qO- 'http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200' || exit 1\")",
+      "Bash(docker volume *)",
+      "Bash(docker rm *)",
+      "Bash(vault status *)",
+      "Bash(vault operator *)",
+      "Bash(python3 -m json.tool)"
     ]
   }
 }

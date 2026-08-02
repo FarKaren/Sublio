@@ -36,29 +36,7 @@ having the muscle memory even solo.
 
 ---
 
-## Secrets engines enabled
-
-```
-1. KV v2  (path: secret/)
-   Static secrets: Redis password, Nexus admin password, Grafana admin password,
-   Keycloak admin password, and the OIDC client_secret auth-service uses to call
-   Keycloak (see backend/10-identity-provider.md). Simple read/write, versioned
-   (old values recoverable), but NOT auto-rotated.
-
-2. Database secrets engine  (path: database/)
-   Connected to Postgres as a management user. Issues DYNAMIC, short-lived
-   credentials per service role:
-     job_role       → SELECT/INSERT/UPDATE on jobs
-     subtitle_role  → SELECT/INSERT on subtitles, subtitle_entries
-     keycloak_role  → full access to the separate `keycloak` database
-   Each credential has a lease TTL (~1h) — Vault creates a real Postgres role
-   with a random password when a service asks, and drops that role when the
-   lease expires or is revoked. No static Postgres password exists anywhere.
-
-Note: no transit engine. JWT signing is entirely Keycloak's responsibility —
-see backend/10-identity-provider.md. auth-service itself has no Postgres role
-at all (no local user table) and only ever reads ONE Vault secret: its
-Keycloak client_secret from KV.
+ v
 ```
 
 ---

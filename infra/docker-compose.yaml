@@ -57,6 +57,23 @@ services:
       - sublio-network
     restart: "no"
 
+  vault-bootstrap-keycloak:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap-keycloak
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${BOOTSTRAP_TOKEN}
+    entrypoint: [ "/scripts/bootstrap-approle.sh", "keycloak-role", "/vault/config" ]
+    volumes:
+      - ./vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - vault-approle-keycloak:/vault/config
+    networks:
+      - sublio-network
+    restart: "no"
+
   # --- Vault Agent: логинится через AppRole, рендерит секрет в файл ---
   vault-agent-redis:
     image: hashicorp/vault:1.17
@@ -99,6 +116,30 @@ services:
       timeout: 2s
       retries: 30
       start_period: 5s
+    networks:
+      - sublio-network
+
+
+  vault-agent-keycloak:
+    image: hashicorp/vault:1.17
+    container_name: vault-agent-keycloak
+    entrypoint: [ "vault" ]
+    depends_on:
+      vault-bootstrap-keycloak:
+        condition: service_completed_successfully
+      keycloak-db-init:
+        condition: service_completed_successfully
+    command: agent -config=/vault/agents/keycloak-agent.hcl
+    volumes:
+      - ./vault/agents/keycloak-agent.hcl:/vault/agents/keycloak-agent.hcl:ro
+      - ./vault/templates/keycloak.env.tpl:/vault/templates/keycloak.env.tpl:ro
+      - keycloak-config-rendered:/vault/rendered
+      - vault-approle-keycloak:/vault/config
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /vault/rendered/keycloak.env" ]
+      interval: 3s
+      timeout: 2s
+      retries: 20
     networks:
       - sublio-network
 
@@ -163,14 +204,67 @@ services:
     networks:
       - sublio-network
 
+
+  keycloak-db-init:
+    image: postgres:17
+    container_name: keycloak-db-init
+    entrypoint: [ "/bin/sh", "/scripts/init-keycloak-db.sh" ]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_DB: ${POSTGRES_DB}
+      KEYCLOAK_POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB}
+    volumes:
+      - ./vault/scripts/init-keycloak-db.sh:/scripts/init-keycloak-db.sh:ro
+      - postgres-config-rendered:/run/secrets:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault-agent-postgres:
+        condition: service_healthy
+    networks:
+      - sublio-network
+    restart: "no"
+
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    entrypoint: [ "/bin/sh", "-c" ]
+    command:
+      - |
+        set -a
+        . /vault/rendered/keycloak.env
+        set +a
+        exec /opt/keycloak/bin/kc.sh start-dev --import-realm --metrics-enabled=true
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_POSTGRES_DB}
+      KC_METRICS_ENABLED: "true"
+      KC_HEALTH_ENABLED: "true"
+      KC_SPI_REALM_IMPORTER_OVERWRITE_EXISTING: "true"
+    volumes:
+      - keycloak-config-rendered:/vault/rendered:ro
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+    depends_on:
+      vault-agent-keycloak:
+        condition: service_healthy
+      keycloak-db-init:
+        condition: service_completed_successfully
+    ports:
+      - "8090:8080"
+      - "9000:9000"
+    networks:
+      - sublio-network
+
 volumes:
   vault-data:
   vault-approle-redis:
   vault-approle-postgres:
+  vault-approle-keycloak:
   redis-config-rendered:
   postgres-config-rendered:
   redis_data:
   postgres_data:
+  keycloak-config-rendered:
 
 networks:
   sublio-network:

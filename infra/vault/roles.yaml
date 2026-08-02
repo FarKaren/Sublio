@@ -12,3 +12,38 @@ roles:
     token_max_ttl: 4h
     secret_id_ttl: 10m
     secret_id_num_uses: 1
+
+  - name: keycloak-role
+    policy_file: keycloak-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
+# Database Secrets Engine: dynamic, short-lived Postgres credentials.
+# Unlike `roles` above (AppRole logins), these don't map to a service's
+# Vault auth - they map to a Postgres role Vault creates/drops on demand.
+# A service still needs an AppRole (above) whose policy grants read on
+# database/creds/<database_roles[].name> to actually fetch one.
+database_connections:
+  - name: sublio-postgres
+    plugin_name: postgresql-database-plugin
+    connection_url: "postgresql://{{username}}:{{password}}@postgres:5432/sublio?sslmode=disable"
+    admin_kv_path: postgres        # vault kv get secret/<admin_kv_path>
+    admin_username_field: username
+    admin_password_field: password
+    allowed_roles: keycloak_role
+
+database_roles:
+  - name: keycloak_role
+    db_connection: sublio-postgres
+    # keycloak_owner is a stable NOLOGIN role (created by the keycloak-db-init
+    # container, not by Vault) that owns the `keycloak` database. The
+    # ephemeral role only joins it via IN ROLE, so it never owns anything
+    # itself and DROP ROLE on revocation always succeeds. See VAULT-GUIDE.md 6.1.
+    creation_statements: >-
+      CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' IN ROLE keycloak_owner;
+    revocation_statements: >-
+      REASSIGN OWNED BY "{{name}}" TO keycloak_owner; DROP OWNED BY "{{name}}"; DROP ROLE IF EXISTS "{{name}}";
+    default_ttl: 1h
+    max_ttl: 4h

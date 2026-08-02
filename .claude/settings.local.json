@@ -30,7 +30,9 @@
       "Bash(docker rm *)",
       "Bash(vault status *)",
       "Bash(vault operator *)",
-      "Bash(python3 -m json.tool)"
+      "Bash(python3 -m json.tool)",
+      "WebSearch",
+      "Bash(chmod +x *)"
     ]
   }
 }

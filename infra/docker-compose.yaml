@@ -1,3 +1,21 @@
+x-db-init: &db-init
+  image: postgres:17
+  entrypoint: [ "/bin/sh", "/scripts/db-init.sh" ]
+  environment:
+    POSTGRES_ADMIN_USER: ${POSTGRES_USER}
+    POSTGRES_ADMIN_DB: ${POSTGRES_DB}
+  volumes:
+    - ./vault/scripts/db-init.sh:/scripts/db-init.sh:ro
+    - postgres-config-rendered:/run/secrets:ro
+  depends_on:
+    postgres:
+      condition: service_healthy
+    vault-agent-postgres:
+      condition: service_healthy
+  networks:
+    - sublio-network
+  restart: "no"
+
 services:
 
   #---------VAULT---------
@@ -206,24 +224,34 @@ services:
 
 
   keycloak-db-init:
-    image: postgres:17
+    <<: *db-init
     container_name: keycloak-db-init
-    entrypoint: [ "/bin/sh", "/scripts/init-keycloak-db.sh" ]
     environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_DB: ${POSTGRES_DB}
-      KEYCLOAK_POSTGRES_DB: ${KEYCLOAK_POSTGRES_DB}
-    volumes:
-      - ./vault/scripts/init-keycloak-db.sh:/scripts/init-keycloak-db.sh:ro
-      - postgres-config-rendered:/run/secrets:ro
-    depends_on:
-      postgres:
-        condition: service_healthy
-      vault-agent-postgres:
-        condition: service_healthy
-    networks:
-      - sublio-network
-    restart: "no"
+      POSTGRES_ADMIN_USER: ${POSTGRES_USER}
+      POSTGRES_ADMIN_DB: ${POSTGRES_DB}
+      OWNER_ROLE: keycloak_owner
+      TARGET_DB: ${KEYCLOAK_POSTGRES_DB}
+      CREATE_DB: "true"          # у keycloak своя отдельная база
+
+  job-db-init:
+    <<: *db-init
+    container_name: job-db-init
+    environment:
+      POSTGRES_ADMIN_USER: ${POSTGRES_USER}
+      POSTGRES_ADMIN_DB: ${POSTGRES_DB}
+      OWNER_ROLE: job_owner
+      TARGET_DB: ${POSTGRES_DB}
+      CREATE_DB: "false"         # job-service живёт в общей sublio-базе
+
+  subtitle-db-init:
+    <<: *db-init
+    container_name: subtitle-db-init
+    environment:
+      POSTGRES_ADMIN_USER: ${POSTGRES_USER}
+      POSTGRES_ADMIN_DB: ${POSTGRES_DB}
+      OWNER_ROLE: subtitle_owner
+      TARGET_DB: ${POSTGRES_DB}
+      CREATE_DB: "false"
 
 
   keycloak:

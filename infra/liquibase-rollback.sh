@@ -23,7 +23,6 @@ source "$ENV_FILE"
 set +a
 
 : "${POSTGRES_USER:?POSTGRES_USER not set in .env}"
-: "${POSTGRES_PASSWORD:?POSTGRES_PASSWORD not set in .env}"
 : "${POSTGRES_DB:?POSTGRES_DB not set in .env}"
 
 MODE=""
@@ -67,9 +66,14 @@ esac
 
 echo "Running liquibase $MODE $PARAM against ${POSTGRES_DB}..."
 
-docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm liquibase \
-  --changelog-file=changelog-master.yaml \
-  --url="jdbc:postgresql://postgres:5432/${POSTGRES_DB}" \
-  --username="${POSTGRES_USER}" \
-  --password="${POSTGRES_PASSWORD}" \
-  "$MODE" "$PARAM"
+# Password is read from the Vault-rendered file INSIDE the container at
+# runtime (same source the "liquibase" up-migration service already uses
+# via postgres-config-rendered) - never a static value from .env.
+docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm --entrypoint /bin/bash liquibase -c "
+  liquibase \
+    --changelog-file=changelog-master.yaml \
+    --url=jdbc:postgresql://postgres:5432/${POSTGRES_DB} \
+    --username=${POSTGRES_USER} \
+    --password=\"\$(cat /run/secrets/postgres_password.txt)\" \
+    $MODE $PARAM
+"

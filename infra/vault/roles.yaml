@@ -20,6 +20,41 @@ roles:
     secret_id_ttl: 10m
     secret_id_num_uses: 1
 
+  - name: auth-role
+    policy_file: auth-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
+  - name: media-role
+    policy_file: media-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
+  - name: subtitle-role
+    policy_file: subtitle-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
+  - name: worker-role
+    policy_file: worker-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
+  - name: job-role
+    policy_file: job-policy.hcl
+    token_ttl: 1h
+    token_max_ttl: 4h
+    secret_id_ttl: 10m
+    secret_id_num_uses: 1
+
 # Database Secrets Engine: dynamic, short-lived Postgres credentials.
 # Unlike `roles` above (AppRole logins), these don't map to a service's
 # Vault auth - they map to a Postgres role Vault creates/drops on demand.
@@ -32,7 +67,7 @@ database_connections:
     admin_kv_path: postgres        # vault kv get secret/<admin_kv_path>
     admin_username_field: username
     admin_password_field: password
-    allowed_roles: keycloak_role
+    allowed_roles: keycloak_role,job_role,subtitle_role
 
 database_roles:
   - name: keycloak_role
@@ -45,5 +80,23 @@ database_roles:
       CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' IN ROLE keycloak_owner;
     revocation_statements: >-
       REASSIGN OWNED BY "{{name}}" TO keycloak_owner; DROP OWNED BY "{{name}}"; DROP ROLE IF EXISTS "{{name}}";
+    default_ttl: 1h
+    max_ttl: 4h
+
+  - name: job_role
+    db_connection: sublio-postgres
+    creation_statements: >-
+      CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' IN ROLE job_owner;
+    revocation_statements: >-
+      REASSIGN OWNED BY "{{name}}" TO job_owner; DROP OWNED BY "{{name}}"; DROP ROLE IF EXISTS "{{name}}";
+    default_ttl: 1h
+    max_ttl: 4h
+
+  - name: subtitle_role
+    db_connection: sublio-postgres
+    creation_statements: >-
+      CREATE ROLE "{{name}}" WITH LOGIN PASSWORD '{{password}}' VALID UNTIL '{{expiration}}' IN ROLE subtitle_owner;
+    revocation_statements: >-
+      REASSIGN OWNED BY "{{name}}" TO subtitle_owner; DROP OWNED BY "{{name}}"; DROP ROLE IF EXISTS "{{name}}";
     default_ttl: 1h
     max_ttl: 4h

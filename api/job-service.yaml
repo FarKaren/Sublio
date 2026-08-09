@@ -1,0 +1,365 @@
+openapi: 3.1.0
+info:
+  title: job-service
+  description: >
+    Orchestrates the entire video processing pipeline: creates and tracks
+    jobs, coordinates transcription-worker and subtitle-service, and streams
+    live progress to clients over Server-Sent Events (SSE).
+  version: 1.0.0
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: /api/jobs
+    description: Reached via api-gateway
+
+tags:
+  - name: Jobs
+    description: Job lifecycle — create, inspect, stream progress, cancel
+
+paths:
+  /jobs:
+    post:
+      tags: [Jobs]
+      summary: Create a processing job
+      description: >
+        Creates a job row in PostgreSQL with status CREATED. The caller is
+        expected to have already uploaded the video via media-service and
+        pass its stored file path.
+      operationId: createJob
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateJobRequest'
+      responses:
+        '201':
+          description: >
+            Job created. If this Idempotency-Key already exists (unique
+            constraint on the jobs table), the existing job is returned
+            unchanged instead of creating a duplicate — same jobId as the
+            original request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateJobResponse'
+        '400':
+          description: Missing/invalid filePath, or missing Idempotency-Key header
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                missingFilePath:
+                  value: { code: MISSING_FILE_PATH, message: The filePath field is required. }
+                missingIdempotencyKey:
+                  value: { code: MISSING_IDEMPOTENCY_KEY, message: The Idempotency-Key header is required. }
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '503':
+          description: >
+            Redis queue depth exceeds the configured ceiling — new job
+            creation is rejected to protect transcription-worker rather than
+            accepting unbounded backlog. Retry after the interval in
+            Retry-After.
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+                description: Seconds to wait before retrying.
+                example: 30
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: QUEUE_DEPTH_EXCEEDED
+                message: The job queue is at capacity; retry after the interval below.
+
+  /jobs/{id}:
+    get:
+      tags: [Jobs]
+      summary: Get current job status
+      description: >
+        Reads job state. Backed by the Redis status cache
+        (`sublio:job:{jobId}:status`) for fast polling, falling back to
+        PostgreSQL as the source of truth.
+      operationId: getJob
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: Current job state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Job'
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Job exists but does not belong to the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No job with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Redis cache error (fallback to PostgreSQL still succeeds)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      tags: [Jobs]
+      summary: Cancel a job
+      description: >
+        Cancels a job that has not yet reached a terminal status (DONE or
+        ERROR). Terminal jobs cannot be cancelled.
+      operationId: cancelJob
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '204':
+          description: Job cancelled
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Job exists but does not belong to the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No job with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Job already in a terminal status (DONE or ERROR) and cannot be cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                code: JOB_ALREADY_TERMINAL
+                message: Job is already in a terminal status and cannot be cancelled.
+        '500':
+          description: Redis cache error (fallback to PostgreSQL still succeeds)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /jobs/{id}/progress:
+    get:
+      tags: [Jobs]
+      summary: Stream live job progress (SSE)
+      description: >
+        Opens a `text/event-stream` connection. The handler subscribes to
+        the Redis channel `sublio:job:{jobId}:progress` in a dedicated
+        goroutine and forwards each message to the client as an SSE event.
+        The goroutine terminates cleanly on client disconnect or timeout —
+        no leaked subscriptions.
+
+
+        **Events emitted on this stream:**
+        - `progress` — sent on every pipeline status change
+          (e.g. `TRANSCRIBING`, `PROCESSING_SUBTITLES`).
+        - `done` — sent once, when the job reaches status DONE. Includes the
+          final result (video URL and subtitle id). No further events follow.
+        - `error` — sent once, when the job reaches status ERROR. No further
+          events follow.
+      operationId: streamJobProgress
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+      responses:
+        '200':
+          description: >
+            SSE stream established. The connection stays open until the job
+            reaches a terminal state (`done`/`error` event) or the client
+            disconnects.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: >
+                  Stream of SSE frames, each `event: <type>` followed by a
+                  `data: <json>` line. See examples below for the three
+                  event types (progress, done, error).
+              examples:
+                progress:
+                  summary: progress event
+                  value: |
+                    event: progress
+                    data: {"status":"TRANSCRIBING","message":"Transcribing Japanese audio..."}
+                done:
+                  summary: done event
+                  value: |
+                    event: done
+                    data: {"videoUrl":"/api/video/9c858901-.../video.mp4","subtitleId":"a1b2c3d4-..."}
+                error:
+                  summary: error event
+                  value: |
+                    event: error
+                    data: {"message":"Transcription failed"}
+        '401':
+          description: Missing or invalid access token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '403':
+          description: Job exists but does not belong to the authenticated user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No job with this id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Redis cache error (fallback to PostgreSQL still succeeds)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  parameters:
+    JobId:
+      name: id
+      in: path
+      required: true
+      description: Job identifier, returned by POST /jobs.
+      schema:
+        type: string
+        format: uuid
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        Client-generated UUID identifying this logical create request,
+        stored with a unique constraint on the jobs table. If a request
+        arrives with an Idempotency-Key that already exists, the existing
+        job is returned unchanged (same 201, same jobId) instead of creating
+        a duplicate — this is what makes a client retry after a network
+        timeout safe. See backend/08-scalability.md.
+      schema:
+        type: string
+        format: uuid
+        example: 6c9e6678-7f3e-4b1a-9c2a-1a2b3c4d5e6f
+
+  schemas:
+    JobStatus:
+      type: string
+      description: >
+        Linear pipeline progression, with ERROR reachable from any
+        in-progress state: CREATED → QUEUED → TRANSCRIBING →
+        PROCESSING_SUBTITLES → DONE, or → ERROR at any point.
+      enum:
+        - CREATED
+        - QUEUED
+        - TRANSCRIBING
+        - PROCESSING_SUBTITLES
+        - DONE
+        - ERROR
+
+    CreateJobRequest:
+      type: object
+      required: [filePath]
+      properties:
+        filePath:
+          type: string
+          description: >
+            Path to the uploaded video on the shared volume, as returned by
+            media-service (e.g. processed/{uuid}/video.mp4).
+          example: processed/9c858901-8a57-4791-81fe-4c455b099bc9/video.mp4
+
+    CreateJobResponse:
+      type: object
+      properties:
+        jobId:
+          type: string
+          format: uuid
+          example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/JobStatus'
+        message:
+          type: string
+          description: Human-readable status detail (e.g. current pipeline step, or error detail).
+          example: Transcribing Japanese audio...
+        result:
+          type: [object, 'null']
+          description: Present only once status is DONE.
+          properties:
+            videoUrl:
+              type: string
+              example: /api/video/9c858901-8a57-4791-81fe-4c455b099bc9/video.mp4
+            subtitleId:
+              type: string
+              format: uuid
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    ErrorResponse:
+      type: object
+      description: Standardized error shape, identical across all Sublio services.
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: >
+            Machine-readable error code, e.g. MISSING_FILE_PATH, MISSING_IDEMPOTENCY_KEY,
+            QUEUE_DEPTH_EXCEEDED, NOT_FOUND, FORBIDDEN, JOB_ALREADY_TERMINAL.
+          example: JOB_ALREADY_TERMINAL
+        message:
+          type: string
+          description: Human-readable error message.
+          example: Job is already in a terminal status and cannot be cancelled.
+        traceId:
+          type: string
+          description: Ties this error to a Tempo trace.
+          example: 4bf92f3577b34da6a3ce929d0e0e4736

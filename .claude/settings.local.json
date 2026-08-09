@@ -32,7 +32,8 @@
       "Bash(vault operator *)",
       "Bash(python3 -m json.tool)",
       "WebSearch",
-      "Bash(chmod +x *)"
+      "Bash(chmod +x *)",
+      "Bash(python3 -c \"import yaml,sys; yaml.safe_load\\(open\\('api/job-service.yaml'\\)\\)\")"
     ]
   }
 }

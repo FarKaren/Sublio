@@ -41,7 +41,7 @@ The only entry point is `api-gateway`. Internal services are not accessible from
 │   ├── Dockerfile                      ← own image, pushed to Nexus docker-hosted
 │   └── go.mod                          (no PostgreSQL — stateless, no local user table)
 │
-├── sublio-media-service/              [Go]  ← already created
+├── media-service/              [Go]  ← already created
 │   ├── cmd/sublio/main.go             ← skeleton (rewrite)
 │   ├── internal/
 │   │   ├── handler/

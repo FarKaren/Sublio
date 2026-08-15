@@ -1,0 +1,10 @@
+version: 3
+
+tasks:
+    generate:
+        desc: "OpenApi code generation — delegates to each service's own go:generate directive"
+        dir: ".."
+        cmds:
+            - cd auth-service && go generate ./...
+            - cd job-service && go generate ./...
+            - cd media-service && go generate ./...

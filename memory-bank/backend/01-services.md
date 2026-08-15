@@ -95,7 +95,7 @@ JWT (issued and signed by Keycloak, not by this service):
 
 ---
 
-## 3. sublio-media-service  [Go]  ← already created
+## 3. media-service  [Go]  ← already created
 
 **Role:** video upload from user, video streaming to browser.
 

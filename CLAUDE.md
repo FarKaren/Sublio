@@ -62,7 +62,7 @@ Predecessor project: `~/Desktop/jimakutsukeru` (Kotlin monolith).
 
 ```
 sublio-web/             ← React/TS, DONE (see memory-bank/frontend/)
-sublio-media-service/   ← Go, skeleton only (config loader + slog logger, no handlers yet)
+media-service/   ← Go, skeleton only (config loader + slog logger, no handlers yet)
 ```
 
 Starting backend now. Goal: reach techlead/architect level — build it with real

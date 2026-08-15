@@ -187,7 +187,7 @@ imported, Vault KV holding the client_secret — see backend/10-identity-provide
 
 ---
 
-## Phase 4 — sublio-media-service (Go)
+## Phase 4 — media-service (Go)
 
 ```
 Goal: accepts video, saves it, publishes task to Redis

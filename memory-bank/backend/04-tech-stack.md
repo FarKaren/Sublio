@@ -7,7 +7,7 @@ Service                  Language    Version   Reason for choice
 ─────────────────────────────────────────────────────────────────────────
 api-gateway              Go          1.22+     Low overhead,
 auth-service             Go          1.22+     goroutines for thousands
-sublio-media-service     Go          1.22+     of connections, no GC pauses
+media-service     Go          1.22+     of connections, no GC pauses
 job-service              Go          1.22+     in IO-bound code
 
 subtitle-service         Kotlin      2.x       Kuromoji — Java library,
@@ -37,7 +37,7 @@ auth-service:  (thin BFF — no JWT library, no bcrypt, no DB driver: Keycloak
   ├── github.com/go-chi/chi/v5
   └── net/http                         ← calls Keycloak's Admin API + token endpoint (stdlib)
 
-sublio-media-service:
+media-service:
   ├── github.com/go-chi/chi/v5
   ├── github.com/google/uuid
   ├── github.com/redis/go-redis/v9     ← Redis client
@@ -221,7 +221,7 @@ Service                  Image name (Nexus docker-hosted)
 ──────────────────────────────────────────────────────────
 api-gateway              sublio/api-gateway
 auth-service             sublio/auth-service
-sublio-media-service     sublio/media-service
+media-service     sublio/media-service
 job-service              sublio/job-service
 subtitle-service         sublio/subtitle-service
 transcription-worker     sublio/transcription-worker
@@ -243,7 +243,7 @@ Service                  Internal port     External (gateway only)
 ────────────────────────────────────────────────────────────────────
 api-gateway              8080              443 (HTTPS)
 auth-service             8081              — (only through gateway)
-sublio-media-service     8082              —
+media-service     8082              —
 job-service              8083              —
 subtitle-service         8084              —
 transcription-worker     —                 — (no HTTP)

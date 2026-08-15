@@ -29,7 +29,7 @@ for people learning Japanese by watching anime.
 - ✅ Vault access model — every planned backend service already has its own
   least-privilege Vault policy and credential path, ready for that service
   to consume once it's built
-- 🚧 `sublio-media-service` — skeleton only, no handlers yet
+- 🚧 `media-service` — skeleton only, no handlers yet
 - ⬜ Auth service, job service, subtitle service, transcription worker, API gateway — not started
 
 ---
@@ -126,8 +126,36 @@ pnpm dev
 
 ```
 sublio-web/             Frontend — React + TypeScript
-sublio-media-service/   Backend video service — Go (in progress)
+api/                    OpenAPI 3.1 specs — one file per service, source of truth for generated code
+auth-service/           Backend auth BFF — Go
+media-service/          Backend video service — Go (in progress)
+job-service/            Backend job orchestration — Go
 infra/                  Docker Compose stack, Vault config, DB migrations
+```
+
+## API code generation
+
+Each Go service's request/response types and server interface are generated
+from its own spec in `api/` via [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) —
+never written by hand, and never generated from another service's spec (no
+build-time coupling between services). Output lands in each service's
+`internal/api/generated.go` and is committed to git, so `go build` doesn't
+require running codegen first.
+
+```bash
+# regenerate all 3 Go services at once
+cd infra && task generate
+```
+
+Each service also carries its own `//go:generate` directive
+(`internal/api/generate.go`), so `go generate ./...` works standalone inside
+any one service directory too — `task generate` is just a convenience
+wrapper that runs all three.
+
+Before regenerating, specs can be linted:
+
+```bash
+npx @redocly/cli lint api/*.yaml
 ```
 
 ## Everyday commands
@@ -141,4 +169,7 @@ cd sublio-web && pnpm lint && pnpm format
 
 # lint Go services (config in .golangci.yml)
 golangci-lint run ./...
+
+# regenerate Go API code from the OpenAPI specs
+cd infra && task generate
 ```

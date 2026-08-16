@@ -37,4 +37,18 @@ tasks:
         desc: "Fail if committed embedded specs are out of sync with api/*.yaml"
         cmds:
             - task: sync-specs
-            - git diff --exit-code ../api-gateway/internal/openapi/specs
+            - |
+                if ! git diff --exit-code -- ../api-gateway/internal/openapi/specs; then
+                  echo ""
+                  echo "❌ api-gateway/internal/openapi/specs is out of sync with api/*.yaml"
+                  echo ""
+                  echo "Someone edited an OpenAPI spec under api/*.yaml but didn't"
+                  echo "re-run the sync step and commit the result."
+                  echo ""
+                  echo "To fix, run locally:"
+                  echo "  cd infra && task sync-specs"
+                  echo "  git add ../api-gateway/internal/openapi/specs"
+                  echo "  git commit -m 'sync embedded openapi specs'"
+                  echo ""
+                  exit 1
+                fi

@@ -158,6 +158,40 @@ Before regenerating, specs can be linted:
 npx @redocly/cli lint api/*.yaml
 ```
 
+> **Important:** after editing any `api/*.yaml` spec (or regenerating Go/Kotlin
+> code from one), api-gateway's embedded copy goes stale until you re-sync it:
+> ```bash
+> cd ~/Desktop/Sublio/infra
+> task sync-specs
+> ```
+> CI enforces this — a PR that changes a spec without re-syncing/regenerating
+> fails the `spec-drift-check` / `go-codegen-drift-check` / `kotlin-codegen-check`
+> jobs (see `.github/workflows/ci.yml`).
+
+### api-gateway docs portal
+
+api-gateway serves all 4 specs and a browsable UI, so the whole system's
+contract is inspectable in one place without touching internal service ports:
+
+```bash
+cd infra && task run-gateway   # always re-syncs specs first
+```
+
+| What | URL |
+|---|---|
+| Swagger UI (`/api/docs`) | http://localhost:8080/api/docs |
+| Raw spec JSON | http://localhost:8080/api/openapi/{service}.json |
+
+### Taskfile commands (`infra/Taskfile.yaml`)
+
+| Command | What it does |
+|---|---|
+| `task generate` | Regenerates all 3 Go services' `internal/api/generated.go` from `api/*.yaml` |
+| `task sync-specs` | Converts `api/*.yaml` → JSON and copies into `api-gateway/internal/openapi/specs/` (embedded at build time) |
+| `task build-gateway` | `sync-specs`, then builds the api-gateway binary |
+| `task run-gateway` | `sync-specs`, then runs api-gateway locally |
+| `task ci-check-specs` | `sync-specs`, then fails if the embedded copies differ from what's committed — this is what CI runs |
+
 ## Everyday commands
 
 ```bash

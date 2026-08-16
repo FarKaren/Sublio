@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  spec-drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64 -O /usr/bin/yq
+          sudo chmod +x /usr/bin/yq
+
+      - name: Install Task
+        uses: arduino/setup-task@v2
+
+      - name: Check api-gateway embedded specs are in sync
+        run: |
+          cd infra
+          task ci-check-specs
+
+  go-codegen-drift-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Regenerate Go API code from api/*.yaml
+        run: |
+          cd auth-service && go generate ./...
+          cd ../job-service && go generate ./...
+          cd ../media-service && go generate ./...
+
+      - name: Fail if committed generated.go no longer matches the spec
+        run: git diff --exit-code -- '**/internal/api/generated.go'
+
+  kotlin-codegen-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      # subtitle-service's build/ (including build/generated) is gitignored —
+      # there's nothing committed to diff against, unlike the Go services.
+      # openApiGenerate always regenerates fresh from api/subtitle-service.yaml
+      # on every build (wired as a compileKotlin dependency), so a spec/handler
+      # mismatch shows up as a compile error here instead of a git diff.
+      - name: Regenerate from spec and build
+        working-directory: subtitle-service
+        run: ./gradlew openApiGenerate build
+

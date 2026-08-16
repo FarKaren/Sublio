@@ -1,0 +1,290 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "subtitle-service",
+    "description": "Converts kanji subtitle text to hiragana readings via Kuromoji, and stores the resulting subtitle entries. Internal-only service — reachable at port 8084 inside the Docker network, not exposed through api-gateway. Called by job-service's orchestrator after transcription-worker produces an SRT file.\n",
+    "version": "1.0.0",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "http://subtitle-service:8084",
+      "description": "Internal Docker network only — not reachable from outside the network."
+    }
+  ],
+  "tags": [
+    {
+      "name": "Subtitles",
+      "description": "Subtitle processing and retrieval"
+    }
+  ],
+  "paths": {
+    "/process": {
+      "post": {
+        "tags": [
+          "Subtitles"
+        ],
+        "summary": "Process an SRT file into kanji + hiragana subtitle entries",
+        "description": "Reads the kanji SRT file from the shared volume at `srtPath`, parses it into timed entries, converts each entry's text to hiragana via Kuromoji tokenization, and persists both the kanji and hiragana text to PostgreSQL (subtitles + subtitle_entries tables). Called by job-service's orchestrator once transcription-worker publishes a \"transcribed\" event.\n",
+        "operationId": "processSubtitles",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProcessRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "SRT parsed, converted, and persisted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProcessResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing jobId/srtPath, or the file at srtPath is not a valid SRT",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingFields": {
+                    "value": {
+                      "code": "MISSING_FIELDS",
+                      "message": "jobId and srtPath are required."
+                    }
+                  },
+                  "invalidSrt": {
+                    "value": {
+                      "code": "INVALID_SRT_FORMAT",
+                      "message": "The file at srtPath is not a valid SRT file."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No file found at srtPath on the shared volume",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "SRT_FILE_NOT_FOUND",
+                  "message": "No file found at srtPath on the shared volume."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subtitles/{id}": {
+      "get": {
+        "tags": [
+          "Subtitles"
+        ],
+        "summary": "Get subtitle entries",
+        "description": "Returns all timed entries for a subtitle, in sequence order.",
+        "operationId": "getSubtitleEntries",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SubtitleId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Subtitle entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SubtitleEntry"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No subtitle with this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "SUBTITLE_NOT_FOUND",
+                  "message": "No subtitle found with this id."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "Subtitles"
+        ],
+        "summary": "Delete a subtitle and its entries",
+        "operationId": "deleteSubtitle",
+        "security": [],
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/SubtitleId"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Subtitle and its entries deleted"
+          },
+          "404": {
+            "description": "No subtitle with this id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "SUBTITLE_NOT_FOUND",
+                  "message": "No subtitle found with this id."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "SubtitleId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "Subtitle identifier, returned by POST /process.",
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "example": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+        }
+      }
+    },
+    "schemas": {
+      "ProcessRequest": {
+        "type": "object",
+        "required": [
+          "jobId",
+          "srtPath"
+        ],
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+          },
+          "srtPath": {
+            "type": "string",
+            "description": "Path to the kanji SRT file on the shared volume.",
+            "example": "processed/9c858901-8a57-4791-81fe-4c455b099bc9/kanji.srt"
+          }
+        }
+      },
+      "ProcessResponse": {
+        "type": "object",
+        "properties": {
+          "subtitleId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+          }
+        }
+      },
+      "SubtitleEntry": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "description": "Entry start timestamp, as parsed from the SRT (SRT timecode format).",
+            "example": "00:00:01,000"
+          },
+          "end": {
+            "type": "string",
+            "description": "Entry end timestamp, as parsed from the SRT (SRT timecode format).",
+            "example": "00:00:04,500"
+          },
+          "kanji": {
+            "type": "string",
+            "description": "Original subtitle text as transcribed.",
+            "example": "日本語を勉強しています"
+          },
+          "hiragana": {
+            "type": "string",
+            "description": "Hiragana reading produced by Kuromoji tokenization.",
+            "example": "にほんごをべんきょうしています"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standardized error shape, identical across all Sublio services.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code, e.g. MISSING_FIELDS, INVALID_SRT_FORMAT, SRT_FILE_NOT_FOUND, SUBTITLE_NOT_FOUND.\n",
+            "example": "SUBTITLE_NOT_FOUND"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message.",
+            "example": "No subtitle found with this id."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Ties this error to a Tempo trace.",
+            "example": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        }
+      }
+    }
+  }
+}

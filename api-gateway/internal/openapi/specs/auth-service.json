@@ -1,0 +1,385 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "auth-service",
+    "description": "Thin BFF over Keycloak. Adapts Keycloak's OIDC API to the simple `{email, password}` contract expected by the Sublio frontend (sublio-web/src/services/authService.ts, api.ts). See backend/10-identity-provider.md for the full design.\n",
+    "version": "1.0.0",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/auth",
+      "description": "Reached via api-gateway"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Registration, login, token refresh, and logout"
+    }
+  ],
+  "paths": {
+    "/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Register a new user and auto-login",
+        "description": "Creates the user via Keycloak's Admin REST API, then immediately performs a ROPC token request to log them in. Register auto-logs-in; it does not just create an inert account.\n",
+        "operationId": "register",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "User created and logged in",
+            "headers": {
+              "Set-Cookie": {
+                "description": "HttpOnly, Secure, SameSite=Strict cookie named `refreshToken`, scoped to path /api/auth. Never appears in the JSON body.\n",
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=xxx; Path=/api/auth; HttpOnly; Secure; SameSite=Strict"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Email already taken",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "EMAIL_TAKEN",
+                  "message": "An account with this email already exists."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Keycloak Admin API error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Log in with email and password",
+        "description": "Exchanges email/password for tokens via Keycloak's token endpoint using the ROPC grant (grant_type=password). The refresh token is NEVER returned in the JSON body — only as an HttpOnly cookie.\n",
+        "operationId": "login",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Login successful",
+            "headers": {
+              "Set-Cookie": {
+                "description": "HttpOnly, Secure, SameSite=Strict `refreshToken` cookie.",
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=xxx; Path=/api/auth; HttpOnly; Secure; SameSite=Strict"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INVALID_CREDENTIALS",
+                  "message": "Email or password is incorrect."
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Keycloak token endpoint error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/refresh": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Refresh the access token",
+        "description": "Reads the refresh token from the HttpOnly `refreshToken` cookie (sent automatically by the browser) — no request body. Keycloak rotates the refresh token on every use, so the response always re-sets the cookie with the new value; the old cookie value becomes invalid immediately.\n",
+        "operationId": "refresh",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Token refreshed",
+            "headers": {
+              "Set-Cookie": {
+                "description": "Re-issued HttpOnly `refreshToken` cookie (rotated value).",
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=yyy; Path=/api/auth; HttpOnly; Secure; SameSite=Strict"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session cookie present, or session expired at Keycloak",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "noSession": {
+                    "value": {
+                      "code": "NO_SESSION",
+                      "message": "No refreshToken cookie present."
+                    }
+                  },
+                  "sessionExpired": {
+                    "value": {
+                      "code": "SESSION_EXPIRED",
+                      "message": "Session has expired; please log in again."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Keycloak token endpoint error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/logout": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "summary": "Log out and revoke the session",
+        "description": "Cookie-authenticated, empty body. Revokes the session server-side at Keycloak (if a refresh token cookie is present) and clears the cookie regardless.\n",
+        "operationId": "logout",
+        "security": [
+          {
+            "cookieAuth": []
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Logged out. Response clears the `refreshToken` cookie (Max-Age=-1). No content.\n",
+            "headers": {
+              "Set-Cookie": {
+                "schema": {
+                  "type": "string",
+                  "example": "refreshToken=; Path=/api/auth; Max-Age=0; HttpOnly"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No session cookie present",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "NO_SESSION",
+                  "message": "No refreshToken cookie present."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Keycloak token revocation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "refreshToken",
+        "description": "HttpOnly, Secure, SameSite=Strict cookie set by /login, /register, or /refresh."
+      }
+    },
+    "schemas": {
+      "Credentials": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "user@example.com"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "minLength": 8,
+            "example": "correct-horse-battery-staple"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Keycloak user id (sub claim)",
+            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "example": "user@example.com"
+          }
+        }
+      },
+      "AuthResponse": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/User"
+          },
+          "accessToken": {
+            "type": "string",
+            "description": "RS256 JWT signed by Keycloak. TTL 15 minutes. Verify via JWKS at api-gateway. Never store in localStorage — keep in memory only.\n",
+            "example": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6..."
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standardized error shape, identical across all Sublio services.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code, e.g. EMAIL_TAKEN, INVALID_CREDENTIALS, NO_SESSION, SESSION_EXPIRED, INTERNAL_ERROR.\n",
+            "example": "EMAIL_TAKEN"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message.",
+            "example": "An account with this email already exists."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Ties this error to a Tempo trace.",
+            "example": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        }
+      }
+    }
+  }
+}

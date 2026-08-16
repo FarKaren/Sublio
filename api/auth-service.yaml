@@ -4,8 +4,6 @@ info:
   description: >
     Thin BFF over Keycloak. Adapts Keycloak's OIDC API to the simple
     `{email, password}` contract expected by the Sublio frontend
-    (sublio-web/src/services/authService.ts, api.ts).
-    See backend/10-identity-provider.md for the full design.
   version: 1.0.0
   license:
     name: MIT

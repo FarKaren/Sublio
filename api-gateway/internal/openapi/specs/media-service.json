@@ -1,0 +1,403 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "media-service",
+    "description": "Accepts video uploads, stores them on a shared Docker volume, and publishes a processing job to Redis for transcription-worker to pick up. Also serves the stored video with HTTP Range support for video players.\n",
+    "version": "1.0.0",
+    "license": {
+      "name": "MIT",
+      "url": "https://opensource.org/licenses/MIT"
+    }
+  },
+  "servers": [
+    {
+      "url": "/api/media",
+      "description": "Reached via api-gateway"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Upload",
+      "description": "Video ingestion"
+    },
+    {
+      "name": "Playback",
+      "description": "Range-request video streaming"
+    }
+  ],
+  "paths": {
+    "/upload": {
+      "post": {
+        "tags": [
+          "Upload"
+        ],
+        "summary": "Upload a video for processing",
+        "description": "Saves the uploaded file to the shared volume under `processed/{uuid}/video.mp4` (UUID path, not the original file name), then publishes a job to the Redis queue `sublio:job:queue` for transcription-worker. Returns immediately with 202 Accepted — this endpoint does not wait for processing to finish.\n\n**Validation performed before the file is accepted:** - Content is verified by magic bytes, not by file extension or the\n  client-supplied Content-Type (both are spoofable):\n  - MP4: bytes 4–7 equal `ftyp`\n  - MKV: starts with `0x1A 0x45 0xDF 0xA3`\n  - AVI: starts with `RIFF`, bytes 8–11 equal `AVI `\n- Files over 2GB are rejected. - Executable formats are rejected outright, regardless of extension:\n  ELF, PE (Windows .exe/.dll), Mach-O.\n- The original filename is never persisted — the file is always\n  stored as `video.mp4` under a freshly generated UUID folder. This\n  is a deliberate path-traversal protection: a crafted filename\n  (e.g. `../../etc/passwd`) never reaches the filesystem layer.\n",
+        "operationId": "uploadVideo",
+        "security": [],
+        "parameters": [
+          {
+            "name": "jobId",
+            "in": "query",
+            "required": true,
+            "description": "Client-supplied job identifier, correlated with the queued task.",
+            "schema": {
+              "type": "string",
+              "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            }
+          },
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "video"
+                ],
+                "properties": {
+                  "video": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "The video file to upload. Validated server-side by magic bytes (MP4/MKV/AVI only); the original filename is discarded and is not used for storage. Maximum size 2GB.\n",
+                    "maxLength": 2147483648
+                  }
+                }
+              },
+              "encoding": {
+                "video": {
+                  "contentType": "video/mp4, video/x-matroska, video/avi, video/x-msvideo"
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "File saved and job queued for processing. If this Idempotency-Key already exists (unique constraint), the original result is returned unchanged instead of saving the file and queuing a duplicate job. If the Redis queue is backed up beyond the configured depth, the upload is still accepted (202) — the client should watch the SSE progress stream for a \"queued, position ~N\" message rather than assume immediate processing. Processing itself is asynchronous either way; this response does not indicate completion.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadAccepted"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Missing jobId, missing Idempotency-Key header, missing \"video\" field, or magic bytes did not match MP4/MKV/AVI",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "examples": {
+                  "missingJobId": {
+                    "value": {
+                      "code": "MISSING_JOB_ID",
+                      "message": "The jobId query parameter is required."
+                    }
+                  },
+                  "missingIdempotencyKey": {
+                    "value": {
+                      "code": "MISSING_IDEMPOTENCY_KEY",
+                      "message": "The Idempotency-Key header is required."
+                    }
+                  },
+                  "missingVideoField": {
+                    "value": {
+                      "code": "MISSING_VIDEO_FIELD",
+                      "message": "The \"video\" multipart field is required."
+                    }
+                  },
+                  "badMagicBytes": {
+                    "value": {
+                      "code": "UNSUPPORTED_MEDIA_TYPE",
+                      "message": "File content did not match MP4, MKV, or AVI magic bytes."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "File identified as an executable format (ELF, PE, Mach-O) by magic bytes — rejected outright regardless of extension.\n",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "EXECUTABLE_FORBIDDEN",
+                  "message": "File identified as an executable format and was rejected."
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "File exceeds the 2GB size limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "FILE_TOO_LARGE",
+                  "message": "File exceeds the 2GB size limit."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error (e.g. Redis queue unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INTERNAL_SERVER_ERROR",
+                  "message": "An unexpected error occurred while processing the upload."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/video/{folderId}/{fileName}": {
+      "get": {
+        "tags": [
+          "Playback"
+        ],
+        "summary": "Stream a stored video",
+        "description": "Serves the file from `processed/{folderId}/{fileName}` on the shared volume. Supports HTTP Range requests so video players can seek without downloading the whole file.\n",
+        "operationId": "getVideo",
+        "security": [],
+        "parameters": [
+          {
+            "name": "folderId",
+            "in": "path",
+            "required": true,
+            "description": "UUID folder the video was stored under at upload time.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "fileName",
+            "in": "path",
+            "required": true,
+            "description": "File name within the folder (e.g. video.mp4).",
+            "schema": {
+              "type": "string",
+              "example": "video.mp4"
+            }
+          },
+          {
+            "name": "Range",
+            "in": "header",
+            "required": false,
+            "description": "Standard HTTP Range header, e.g. `bytes=0-1023`.",
+            "schema": {
+              "type": "string",
+              "example": "bytes=0-1023"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Full file returned (no Range header was sent)",
+            "headers": {
+              "Content-Type": {
+                "schema": {
+                  "type": "string",
+                  "example": "video/mp4"
+                }
+              },
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRanges"
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "206": {
+            "description": "Partial content returned for the requested byte range",
+            "headers": {
+              "Content-Range": {
+                "schema": {
+                  "type": "string",
+                  "example": "bytes 0-1023/10000000"
+                }
+              },
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRanges"
+              },
+              "Content-Length": {
+                "schema": {
+                  "type": "integer"
+                }
+              },
+              "Content-Type": {
+                "schema": {
+                  "type": "string",
+                  "example": "video/mp4"
+                }
+              }
+            },
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No file at that folderId/fileName",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "416": {
+            "description": "Range not satisfiable (e.g. start byte beyond file size). Accept-Ranges and Content-Range are still returned so the client knows the valid unit and total resource length.\n",
+            "headers": {
+              "Accept-Ranges": {
+                "$ref": "#/components/headers/AcceptRanges"
+              },
+              "Content-Range": {
+                "description": "Total resource length, per RFC 7233 (e.g. `bytes */10000000`).",
+                "schema": {
+                  "type": "string",
+                  "example": "bytes */10000000"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error (e.g. file system unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INTERNAL_SERVER_ERROR",
+                  "message": "An unexpected error occurred while serving the video."
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "headers": {
+      "AcceptRanges": {
+        "description": "Always \"bytes\" — advertises that Range requests are supported.",
+        "schema": {
+          "type": "string",
+          "enum": [
+            "bytes"
+          ],
+          "example": "bytes"
+        }
+      }
+    },
+    "parameters": {
+      "IdempotencyKey": {
+        "name": "Idempotency-Key",
+        "in": "header",
+        "required": true,
+        "description": "Client-generated UUID identifying this upload request, stored with a unique constraint. If a request arrives with an Idempotency-Key that was already used, the original upload result is returned unchanged (same 202, same jobId/folderId/fileName) instead of saving the file a second time — this is what makes a client retry after a network timeout safe. See backend/08-scalability.md.\n",
+        "schema": {
+          "type": "string",
+          "format": "uuid",
+          "example": "6c9e6678-7f3e-4b1a-9c2a-1a2b3c4d5e6f"
+        }
+      }
+    },
+    "schemas": {
+      "UploadAccepted": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+          },
+          "folderId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "UUID folder the video was stored under; used to build the playback URL.",
+            "example": "9c858901-8a57-4791-81fe-4c455b099bc9"
+          },
+          "fileName": {
+            "type": "string",
+            "example": "video.mp4"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "QUEUED"
+            ],
+            "example": "QUEUED"
+          }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Standardized error shape, identical across all Sublio services.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Machine-readable error code, e.g. MISSING_JOB_ID, MISSING_IDEMPOTENCY_KEY, MISSING_VIDEO_FIELD, UNSUPPORTED_MEDIA_TYPE, EXECUTABLE_FORBIDDEN, FILE_TOO_LARGE, NOT_FOUND, RANGE_NOT_SATISFIABLE, INTERNAL_SERVER_ERROR.\n",
+            "example": "FILE_TOO_LARGE"
+          },
+          "message": {
+            "type": "string",
+            "description": "Human-readable error message.",
+            "example": "File exceeds the 2GB size limit."
+          },
+          "traceId": {
+            "type": "string",
+            "description": "Ties this error to a Tempo trace.",
+            "example": "4bf92f3577b34da6a3ce929d0e0e4736"
+          }
+        }
+      }
+    }
+  }
+}

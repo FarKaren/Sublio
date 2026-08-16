@@ -8,3 +8,33 @@ tasks:
             - cd auth-service && go generate ./...
             - cd job-service && go generate ./...
             - cd media-service && go generate ./...
+
+    # api-gateway
+    sync-specs:
+        desc: "Convert OpenAPI specs to JSON and copy into api-gateway for embedding"
+        cmds:
+            - rm -rf ../api-gateway/internal/openapi/specs
+            - mkdir -p ../api-gateway/internal/openapi/specs
+            - yq -o=json '.' ../api/auth-service.yaml     > ../api-gateway/internal/openapi/specs/auth-service.json
+            - yq -o=json '.' ../api/job-service.yaml      > ../api-gateway/internal/openapi/specs/job-service.json
+            - yq -o=json '.' ../api/media-service.yaml    > ../api-gateway/internal/openapi/specs/media-service.json
+            - yq -o=json '.' ../api/subtitle-service.yaml > ../api-gateway/internal/openapi/specs/subtitle-service.json
+    build-gateway:
+        desc: "Build api-gateway (always syncs specs first)"
+        deps: [ sync-specs ]
+        dir: ../api-gateway
+        cmds:
+            - go build ./cmd/gateway
+    run-gateway:
+        desc: "Run api-gateway locally (always syncs specs first)"
+        deps: [ sync-specs ]
+        dir: ../api-gateway
+        env:
+            CONFIG_PATH: "./config/config.yaml"
+        cmds:
+            - go run ./cmd/gateway
+    ci-check-specs:
+        desc: "Fail if committed embedded specs are out of sync with api/*.yaml"
+        cmds:
+            - task: sync-specs
+            - git diff --exit-code ../api-gateway/internal/openapi/specs

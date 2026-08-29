@@ -1,0 +1,13 @@
+# Sublio/.dockerignore
+auth-service/
+job-service/
+media-service/
+sublio-web/
+api-gateway/
+memory-bank/
+infra/
+.git/
+.github/
+**/build/
+**/.gradle/
+**/node_modules/

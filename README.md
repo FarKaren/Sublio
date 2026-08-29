@@ -70,9 +70,13 @@ vault operator unseal <unseal-key-3>
 export VAULT_TOKEN=<root-token>
 
 # enable secret storage and set the base passwords
+# POSTGRES_USER/POSTGRES_DB must match what Postgres gets at initdb time
+# (infra/.env) — pull them from there instead of retyping, so the two
+# never silently drift apart
+set -a && source infra/.env && set +a
 vault secrets enable -path=secret -version=2 kv
 vault kv put secret/redis password="$(openssl rand -base64 24)"
-vault kv put secret/postgres username="sublio" password="$(openssl rand -base64 24)" database="sublio"
+vault kv put secret/postgres username="${POSTGRES_USER}" password="$(openssl rand -base64 24)" database="${POSTGRES_DB}"
 vault kv put secret/keycloak admin_user="admin" admin_password="$(openssl rand -base64 24)"
 
 # secrets for the not-yet-built services — safe to set up now, each service

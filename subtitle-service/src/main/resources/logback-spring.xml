@@ -1,0 +1,49 @@
+<configuration>
+
+    <!-- === DEFAULT (no profile / local) === -->
+    <springProfile name="!docker &amp; !dev">
+
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>
+                    %d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n
+                </pattern>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+
+    </springProfile>
+
+
+    <!-- === DOCKER,DEV PROFILE === -->
+    <springProfile name="docker,dev">
+
+        <logger name="org.springframework.security" level="DEBUG"/>
+        <logger name="org.springframework.security.oauth2" level="DEBUG"/>
+
+        <appender name="JSON" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LoggingEventCompositeJsonEncoder">
+                <providers>
+                    <timestamp/>
+                    <logLevel/>
+                    <loggerName/>
+                    <threadName/>
+                    <message/>
+                    <mdc>
+                        <excludeMdcKeyName>traceId</excludeMdcKeyName>
+                        <excludeMdcKeyName>spanId</excludeMdcKeyName>
+                    </mdc>
+                </providers>
+            </encoder>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON"/>
+        </root>
+
+    </springProfile>
+
+</configuration>

@@ -44,15 +44,17 @@ file(".env").takeIf { it.exists() }?.readLines()?.forEach {
 val nexusUrl = System.getenv("NEXUS_URL") ?: System.getProperty("NEXUS_URL")
 val nexusUser = System.getenv("NEXUS_USERNAME") ?: System.getProperty("NEXUS_USERNAME")
 val nexusPassword = System.getenv("NEXUS_PASSWORD") ?: System.getProperty("NEXUS_PASSWORD")
+val nexusConfigured = !nexusUrl.isNullOrBlank() && !nexusUser.isNullOrBlank() && !nexusPassword.isNullOrBlank()
 
-if (nexusUrl.isNullOrBlank() || nexusUser.isNullOrBlank() || nexusPassword.isNullOrBlank()) {
-    throw GradleException(
-        "NEXUS details are not set. Create a .env file with correct properties: " +
-                "NEXUS_URL, NEXUS_USERNAME, NEXUS_PASSWORD"
+if (!nexusConfigured) {
+    logger.lifecycle(
+        "NEXUS details are not set (NEXUS_URL, NEXUS_USERNAME, NEXUS_PASSWORD) — " +
+                "falling back to mavenCentral, Nexus pull-through cache disabled for this build."
     )
 }
 
 fun RepositoryHandler.nexusRepo() {
+    if (!nexusConfigured) return
     maven {
         url = uri(nexusUrl!!)
         isAllowInsecureProtocol = true

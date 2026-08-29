@@ -25,7 +25,7 @@ services:
     ports:
       - "8200:8200"
     volumes:
-      - ./vault/vault-server-${ENV}.hcl:/vault/config/vault.hcl:ro
+      - ./vault/vault-server-${SPRING_PROFILES_ACTIVE}.hcl:/vault/config/vault.hcl:ro
       - vault-data:/vault/file
     cap_add:
       - IPC_LOCK
@@ -172,6 +172,14 @@ services:
     volumes:
       - redis-config-rendered:/usr/local/etc/redis
       - redis_data:/data
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "redis-cli -a \"$(grep -oP '(?<=requirepass ).*' /usr/local/etc/redis/redis.conf)\" ping | grep -q PONG"
+      ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - sublio-network
 
@@ -231,7 +239,7 @@ services:
       POSTGRES_ADMIN_DB: ${POSTGRES_DB}
       OWNER_ROLE: keycloak_owner
       TARGET_DB: ${KEYCLOAK_POSTGRES_DB}
-      CREATE_DB: "true"          # у keycloak своя отдельная база
+      CREATE_DB: "true"
 
   job-db-init:
     <<: *db-init
@@ -241,7 +249,7 @@ services:
       POSTGRES_ADMIN_DB: ${POSTGRES_DB}
       OWNER_ROLE: job_owner
       TARGET_DB: ${POSTGRES_DB}
-      CREATE_DB: "false"         # job-service живёт в общей sublio-базе
+      CREATE_DB: "false"
 
   subtitle-db-init:
     <<: *db-init
@@ -406,6 +414,97 @@ services:
     networks:
       - sublio-network
 
+  nexus:
+    image: sonatype/nexus3:3.76.0
+    platform: linux/amd64
+    container_name: nexus
+    ports:
+      - "18081:8081"
+    environment:
+      NEXUS_SECURITY_INITIAL_PASSWORD: ${NEXUS_SECURITY_INITIAL_PASSWORD}
+      NEXUS_SECURITY_RANDOMPASSWORD: ${NEXUS_SECURITY_RANDOMPASSWORD}
+    volumes:
+      - nexus-data:/nexus-data
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/service/rest/v1/status" ]
+      interval: 5s
+      timeout: 10s
+      retries: 30
+
+
+  vault-bootstrap-subtitle:
+    image: hashicorp/vault:1.17
+    container_name: vault-bootstrap-subtitle
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${BOOTSTRAP_TOKEN}
+    entrypoint: [ "/scripts/bootstrap-approle.sh", "subtitle-role", "/vault/config" ]
+    volumes:
+      - ./vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - vault-approle-subtitle:/vault/config
+    networks:
+      - sublio-network
+    restart: "no"
+
+  vault-agent-subtitle:
+    image: hashicorp/vault:1.17
+    container_name: vault-agent-subtitle
+    entrypoint: [ "vault" ]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+    depends_on:
+      vault-bootstrap-subtitle:
+        condition: service_completed_successfully
+    command: agent -config=/vault/agents/subtitle-agent.hcl
+    volumes:
+      - ./vault/agents/subtitle-agent.hcl:/vault/agents/subtitle-agent.hcl:ro
+      - ./vault/templates/subtitle.env.tpl:/vault/templates/subtitle.env.tpl:ro
+      - subtitle-config-rendered:/vault/rendered
+      - vault-approle-subtitle:/vault/config
+    healthcheck:
+      test: [ "CMD-SHELL", "test -f /vault/rendered/subtitle.env" ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+      start_period: 5s
+    networks:
+      - sublio-network
+
+
+  subtitle-service:
+    build:
+      context: ..
+      dockerfile: subtitle-service/Dockerfile
+    container_name: subtitle-service
+    ports:
+      - "8084:8084"
+    volumes:
+      - subtitle-config-rendered:/run/secrets:ro
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      OTLP_EXPORTER_ENDPOINT: http://alloy:4318
+      NEXUS_URL: ${NEXUS_URL}
+      NEXUS_USERNAME: ${NEXUS_USERNAME}
+      NEXUS_PASSWORD: ${NEXUS_PASSWORD}
+    depends_on:
+      vault-agent-subtitle:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      subtitle-db-init:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test: [ "CMD", "curl", "-i", "http://localhost:8084/actuator/health" ]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - sublio-network
+
 volumes:
   vault-data:
   vault-approle-redis:
@@ -416,6 +515,9 @@ volumes:
   redis_data:
   postgres_data:
   keycloak-config-rendered:
+  subtitle-config-rendered:
+  vault-approle-subtitle:
+  nexus-data:
 
 networks:
   sublio-network:

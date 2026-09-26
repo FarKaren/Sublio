@@ -1,8 +1,9 @@
-package subtitleservice.service
+package subtitle.service
 
 import com.atilika.kuromoji.ipadic.Tokenizer
 
-class KuromojService {
+
+object KuromojService {
     private val tokenizer = Tokenizer()
 
     fun toHiragana(kanjiText: String): String =

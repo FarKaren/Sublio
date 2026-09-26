@@ -43,3 +43,6 @@ otel:
 
 logging:
   config: "classpath:logback-spring.xml"
+
+app:
+  processed_file_dir: "/data/processed/"

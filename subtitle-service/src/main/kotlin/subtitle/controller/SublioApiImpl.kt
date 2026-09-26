@@ -1,4 +1,4 @@
-package subtitleservice.controller
+package subtitle.controller
 
 import com.sublio.subtitleservice.api.SubtitlesApi
 import com.sublio.subtitleservice.model.ProcessRequest
@@ -6,11 +6,12 @@ import com.sublio.subtitleservice.model.ProcessResponse
 import com.sublio.subtitleservice.model.SubtitleEntry
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.RestController
+import subtitle.service.SubtitlesService
 import java.util.UUID
 
 @RestController
 class SublioApiImpl(
-    //private val subtitlesApiService: SubtitlesApiService
+    private val subtitlesService: SubtitlesService
 ) : SubtitlesApi {
 
     override fun deleteSubtitle(id: UUID): ResponseEntity<Unit> {
@@ -22,7 +23,8 @@ class SublioApiImpl(
     }
 
     override fun processSubtitles(processRequest: ProcessRequest): ResponseEntity<ProcessResponse> {
-        return TODO()
+        val subtitleId = subtitlesService.processSrt(processRequest.jobId, processRequest.srtPath)
+        return ResponseEntity.status(201).body(ProcessResponse(subtitleId))
     }
 
 }

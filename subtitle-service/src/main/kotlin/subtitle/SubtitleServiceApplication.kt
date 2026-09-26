@@ -1,4 +1,4 @@
-package subtitleservice
+package subtitle
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication

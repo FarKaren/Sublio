@@ -1,5 +1,6 @@
 import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.kotlin.dsl.register
 
 plugins {
     kotlin("jvm") version "2.3.20"
@@ -11,17 +12,21 @@ plugins {
     application
 }
 
-val versions = mapOf(
-    "jacksonDatabindVersion" to "0.2.6",
-    "swaggerAnnotationJakarta" to "2.2.52",
-    "feignMicrometerVersion" to "13.14",
-    "kuromojiVersion" to "0.9.0",
-    "postgresDriverVersion" to "42.7.13",
-    "logstashEncoderVersion" to "8.0",
-)
+
 
 group = "com.sublio"
 version = "0.0.1-SNAPSHOT"
+
+fun Project.stringProperty(name: String): String = property(name) as String
+
+val testContainersVersion = stringProperty("testContainersVersion")
+val jacksonDatabindVersion = stringProperty("jacksonDatabindVersion")
+val swaggerAnnotationJakarta = stringProperty("swaggerAnnotationJakarta")
+val feignMicrometerVersion = stringProperty("feignMicrometerVersion")
+val kuromojiVersion = stringProperty("kuromojiVersion")
+val postgresDriverVersion = stringProperty("postgresDriverVersion")
+val logstashEncoderVersion = stringProperty("logstashEncoderVersion")
+
 
 java {
     toolchain {
@@ -91,20 +96,31 @@ dependencies {
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6")
 
     implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
-    implementation("io.github.openfeign:feign-micrometer:${versions["feignMicrometerVersion"]}")
+    implementation("io.github.openfeign:feign-micrometer:$feignMicrometerVersion")
     implementation("io.micrometer:micrometer-registry-prometheus")
 
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("org.openapitools:jackson-databind-nullable:${versions["jacksonDatabindVersion"]}")
-    implementation("io.swagger.core.v3:swagger-annotations-jakarta:${versions["swaggerAnnotationJakarta"]}")
+    implementation("org.openapitools:jackson-databind-nullable:$jacksonDatabindVersion")
+    implementation("io.swagger.core.v3:swagger-annotations-jakarta:$swaggerAnnotationJakarta")
 
-    implementation("org.postgresql:postgresql:${versions["postgresDriverVersion"]}")
+    implementation("org.postgresql:postgresql:$postgresDriverVersion")
 
-    implementation("com.atilika.kuromoji:kuromoji-ipadic:${versions["kuromojiVersion"]}")
-    implementation("net.logstash.logback:logstash-logback-encoder:${versions["logstashEncoderVersion"]}")
+    implementation("com.atilika.kuromoji:kuromoji-ipadic:$kuromojiVersion")
+    implementation("net.logstash.logback:logstash-logback-encoder:$logstashEncoderVersion")
+
+    // OBSERVABILITY
+    implementation("io.micrometer:micrometer-registry-prometheus")
+    implementation("io.opentelemetry:opentelemetry-exporter-otlp")
+    implementation("io.micrometer:micrometer-tracing")
+    implementation("io.micrometer:micrometer-tracing-bridge-otel")
+    implementation("io.opentelemetry.instrumentation:opentelemetry-spring-boot-starter")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+    testImplementation("org.testcontainers:testcontainers")
+    testImplementation("org.testcontainers:junit-jupiter")
+    testImplementation("org.testcontainers:postgresql:${testContainersVersion}")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     runtimeOnly("org.postgresql:postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

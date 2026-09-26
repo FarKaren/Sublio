@@ -1,5 +1,8 @@
-package subtitleservice.service
+package subtitle.service.unit
 
+import subtitle.service.SrtEntry
+import subtitle.service.SrtParseException
+import subtitle.service.SrtParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith

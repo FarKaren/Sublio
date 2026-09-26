@@ -1,4 +1,4 @@
-package subtitleservice.service
+package subtitle.service
 
 class SrtParseException(message: String) : RuntimeException(message)
 

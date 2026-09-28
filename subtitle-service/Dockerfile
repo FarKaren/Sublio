@@ -28,4 +28,4 @@ WORKDIR /app
 COPY --from=build /home/gradle/project/build/libs/*.jar app.jar
 
 EXPOSE 8084
-ENTRYPOINT ["/bin/sh", "-c", "set -a && . /run/secrets/subtitle.env && set +a && exec java -jar app.jar"]
+ENTRYPOINT ["/bin/sh", "-c", "export VAULT_ROLE_ID=$(cat /vault/config/role-id) && exec java -jar app.jar"]

@@ -2,14 +2,27 @@ server:
   port: 8084
 
 spring:
+  config:
+    import: "vault://"
+
   application:
     name: subtitle-service
+
+  cloud:
+    vault:
+      uri: http://vault:8200
+      authentication: APPROLE
+      app-role:
+        role-id: ${VAULT_ROLE_ID}
+        secret-id-file: /vault/config/secret-id
+      database:
+        enabled: true
+        role: subtitle_role
+        backend: database
 
   datasource:
     driver-class-name: org.postgresql.Driver
     url: jdbc:postgresql://postgres:5432/${DB_NAME}
-    username: ${DB_USERNAME}
-    password: ${DB_PASSWORD}
 
 
 management:

@@ -26,6 +26,7 @@ val feignMicrometerVersion = stringProperty("feignMicrometerVersion")
 val kuromojiVersion = stringProperty("kuromojiVersion")
 val postgresDriverVersion = stringProperty("postgresDriverVersion")
 val logstashEncoderVersion = stringProperty("logstashEncoderVersion")
+val vaultVersion = stringProperty("vaultVersion")
 
 
 java {
@@ -94,6 +95,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6")
+    implementation("org.springframework.cloud:spring-cloud-vault-config:$vaultVersion")
 
     implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
     implementation("io.github.openfeign:feign-micrometer:$feignMicrometerVersion")

@@ -449,31 +449,6 @@ services:
       - sublio-network
     restart: "no"
 
-  vault-agent-subtitle:
-    image: hashicorp/vault:1.17
-    container_name: vault-agent-subtitle
-    entrypoint: [ "vault" ]
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-    depends_on:
-      vault-bootstrap-subtitle:
-        condition: service_completed_successfully
-    command: agent -config=/vault/agents/subtitle-agent.hcl
-    volumes:
-      - ./vault/agents/subtitle-agent.hcl:/vault/agents/subtitle-agent.hcl:ro
-      - ./vault/templates/subtitle.env.tpl:/vault/templates/subtitle.env.tpl:ro
-      - subtitle-config-rendered:/vault/rendered
-      - vault-approle-subtitle:/vault/config
-    healthcheck:
-      test: [ "CMD-SHELL", "test -f /vault/rendered/subtitle.env" ]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-      start_period: 5s
-    networks:
-      - sublio-network
-
-
   subtitle-service:
     build:
       context: ..
@@ -482,7 +457,7 @@ services:
     ports:
       - "8084:8084"
     volumes:
-      - subtitle-config-rendered:/run/secrets:ro
+      - vault-approle-subtitle:/vault/config:ro
     environment:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
       OTLP_EXPORTER_ENDPOINT: http://alloy:4318
@@ -490,8 +465,8 @@ services:
       NEXUS_USERNAME: ${NEXUS_USERNAME}
       NEXUS_PASSWORD: ${NEXUS_PASSWORD}
     depends_on:
-      vault-agent-subtitle:
-        condition: service_healthy
+      vault-bootstrap-subtitle:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       subtitle-db-init:
@@ -515,7 +490,6 @@ volumes:
   redis_data:
   postgres_data:
   keycloak-config-rendered:
-  subtitle-config-rendered:
   vault-approle-subtitle:
   nexus-data:
 

@@ -195,6 +195,105 @@ cd infra && task run-gateway   # always re-syncs specs first
 | `task build-gateway` | `sync-specs`, then builds the api-gateway binary |
 | `task run-gateway` | `sync-specs`, then runs api-gateway locally |
 | `task ci-check-specs` | `sync-specs`, then fails if the embedded copies differ from what's committed — this is what CI runs |
+| `task registry:login` | Logs Docker into the Nexus `docker-hosted` registry |
+| `task image:build SERVICE=<name> [TAG=<tag>]` | Builds a service image locally (default tag `dev`) |
+| `task image:push SERVICE=<name> [TAG=<tag>]` | Logs in, builds and pushes a service image to Nexus |
+| `task image:push-all [TAG=<tag>]` | Builds and pushes images for all services |
+| `task jar:publish PROJECT=<name> [MODULE=<name>] [VERSION=<x.y.z>]` | Publishes a Gradle module's jar to Nexus (SNAPSHOT by default, release if `VERSION` is set) |
+
+Run `task --list` to see all commands with descriptions.
+
+### Publishing images and client jars to Nexus
+
+#### Prerequisites
+
+- [Task](https://taskfile.dev) **v3.29+** (`task --version`)
+- Nexus is running with the `docker-hosted` repository:
+```bash
+  docker compose up -d nexus nexus-init
+  docker logs nexus-init   # should end with "Nexus init done."
+```
+- `infra/.env` contains Nexus credentials:
+```dotenv
+  NEXUS_USERNAME=admin
+  NEXUS_PASSWORD=<admin password>
+```
+
+| Endpoint | Purpose |
+|---|---|
+| `http://localhost:18081` | Nexus UI, Maven repositories |
+| `localhost:18083` | Docker registry (`docker-hosted`) |
+
+#### Docker images
+
+All commands are run from `infra/`:
+
+```bash
+cd infra
+
+# one service, default tag "dev"
+task image:push SERVICE=subtitle-service
+
+# one service, release tag
+task image:push SERVICE=subtitle-service TAG=0.1.0
+
+# all services
+task image:push-all TAG=0.1.0
+```
+
+Available services: `auth-service`, `job-service`, `media-service`, `subtitle-service`.
+
+Every image gets two tags:
+
+- `<TAG>` — the one you passed (or `dev`)
+- `sha-<commit>` — the short git commit hash, so you can always tell which code an image was built from
+
+Example result: `localhost:18083/sublio/subtitle-service:0.1.0` and `localhost:18083/sublio/subtitle-service:sha-a1b2c3d`.
+
+Pull an image:
+
+```bash
+docker pull localhost:18083/sublio/subtitle-service:0.1.0
+```
+
+> `subtitle-service` is built with the **repository root** as Docker context (it needs `api/` for code generation). Other services use their own folder.
+
+#### Jars (clients, schemas, shared libraries)
+
+```bash
+cd infra
+
+# every module with maven-publish in the given Gradle build
+task jar:publish PROJECT=subtitle-service
+
+# one specific module
+task jar:publish PROJECT=subtitle-service MODULE=subtitle-service-client
+
+# release version (maven-releases, immutable)
+task jar:publish PROJECT=subtitle-service VERSION=0.1.0
+```
+
+- `PROJECT` — folder that contains `gradlew`
+- `MODULE` — Gradle submodule name (optional)
+- Without `VERSION` the jar is published as `X.Y.Z-SNAPSHOT` to `maven-snapshots`
+
+Only modules with the `maven-publish` plugin are published. The service itself (`subtitle-service`) has no `maven-publish`, so its jar never goes to Nexus — only its Docker image does.
+
+Consumers add the dependency:
+
+```kotlin
+implementation("com.sublio:subtitle-service-client:0.1.0")
+```
+
+> The local Nexus is not reachable from GitHub Actions. Services inside this repository should use `includeBuild("../subtitle-service")` instead of pulling the client from Nexus, otherwise their CI build will fail.
+
+#### Using a different registry
+
+The registry address defaults to `localhost:18083`. Override it with an environment variable:
+
+```bash
+REGISTRY=nexus.example.com:8083 task image:push SERVICE=subtitle-service TAG=0.1.0
+```
 
 ## Everyday commands
 

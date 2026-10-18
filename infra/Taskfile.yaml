@@ -1,5 +1,20 @@
 version: 3
 
+# Variables from infra/.env (same place as the Nexus password in compose):
+#   NEXUS_USERNAME=admin
+#   NEXUS_PASSWORD=...
+dotenv: ['.env']
+
+vars:
+    REGISTRY: '{{.REGISTRY | default "localhost:18083"}}'   # Nexus docker-hosted
+    IMAGE_PREFIX: '{{.REGISTRY}}/sublio'
+    # Services that get built into images (name = folder with a Dockerfile)
+    SERVICES: auth-service job-service media-service subtitle-service
+    REPO_ROOT:
+        sh: git rev-parse --show-toplevel
+    GIT_SHA:
+        sh: git rev-parse --short HEAD
+
 tasks:
     generate:
         desc: "OpenApi code generation — delegates to each service's own go:generate directive"
@@ -52,3 +67,63 @@ tasks:
                   echo ""
                   exit 1
                 fi
+
+    # ─────────────────────────── Docker images → Nexus ───────────────────────────
+
+    registry:login:
+        desc: "Log Docker into Nexus docker-hosted"
+        cmds:
+            - echo "$NEXUS_PASSWORD" | docker login {{.REGISTRY}} -u "$NEXUS_USERNAME" --password-stdin
+
+    image:build:
+        desc: "Build an image. Example: task image:build SERVICE=subtitle-service TAG=0.1.0"
+        requires:
+            vars: [ SERVICE ]
+        vars:
+            TAG: '{{.TAG | default "dev"}}'
+            # subtitle-service is built from the repo root (needs the api/ folder)
+            CONTEXT: '{{if eq .SERVICE "subtitle-service"}}.{{else}}{{.SERVICE}}{{end}}'
+        dir: '{{.REPO_ROOT}}'
+        cmds:
+            - >-
+                docker build
+                --provenance=false
+                --sbom=false
+                -f {{.SERVICE}}/Dockerfile
+                -t {{.IMAGE_PREFIX}}/{{.SERVICE}}:{{.TAG}}
+                -t {{.IMAGE_PREFIX}}/{{.SERVICE}}:sha-{{.GIT_SHA}}
+                {{.CONTEXT}}
+
+    image:push:
+        desc: "Build and push an image. Example: task image:push SERVICE=subtitle-service TAG=0.1.0"
+        requires:
+            vars: [ SERVICE ]
+        vars:
+            TAG: '{{.TAG | default "dev"}}'
+        cmds:
+            - task: registry:login
+            - task: image:build
+              vars: { SERVICE: '{{.SERVICE}}', TAG: '{{.TAG}}' }
+            - docker push {{.IMAGE_PREFIX}}/{{.SERVICE}}:{{.TAG}}
+            - docker push {{.IMAGE_PREFIX}}/{{.SERVICE}}:sha-{{.GIT_SHA}}
+
+    image:push-all:
+        desc: "Build and push images for all services. Example: task image:push-all TAG=0.1.0"
+        vars:
+            TAG: '{{.TAG | default "dev"}}'
+        cmds:
+            - for: { var: SERVICES }
+              task: image:push
+              vars: { SERVICE: '{{.ITEM}}', TAG: '{{.TAG}}' }
+
+    # ─────────────────────────── Client jar → Nexus ───────────────────────────
+
+    jar:publish:
+      desc: "Publish a jar to Nexus. Example: task jar:publish PROJECT=subtitle-service [MODULE=subtitle-service-client] [VERSION=0.1.0]"
+      requires:
+        vars: [ PROJECT ]
+      vars:
+        GRADLE_TASK: '{{if .MODULE}}:{{.MODULE}}:publish{{else}}publish{{end}}'
+      dir: ../{{.PROJECT}}
+      cmds:
+        - ./gradlew {{.GRADLE_TASK}} --no-daemon {{if .VERSION}}-PreleaseVersion={{.VERSION}}{{end}}

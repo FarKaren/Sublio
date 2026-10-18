@@ -12,4 +12,5 @@ plugins {
 }
 
 rootProject.name = "subtitle-service"
+include("subtitle-service-client")
 

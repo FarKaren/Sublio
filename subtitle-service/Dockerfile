@@ -17,15 +17,20 @@ COPY subtitle-service/settings.gradle.kts .
 COPY subtitle-service/src ./src
 
 RUN gradle --no-daemon clean build -x test
-RUN gradle publish --info
 
 FROM eclipse-temurin:24-jre
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
+RUN groupadd -r spring && useradd -r -g spring spring
+
 WORKDIR /app
 
 COPY --from=build /home/gradle/project/build/libs/*.jar app.jar
+
+RUN chown spring:spring app.jar
+
+USER spring
 
 EXPOSE 8084
 ENTRYPOINT ["/bin/sh", "-c", "export VAULT_ROLE_ID=$(cat /vault/config/role-id) && exec java -jar app.jar"]

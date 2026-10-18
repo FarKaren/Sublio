@@ -1,14 +1,9 @@
-import org.openapitools.generator.gradle.plugin.tasks.GenerateTask
-import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.kotlin.dsl.register
-
 plugins {
     kotlin("jvm") version "2.3.20"
     kotlin("plugin.spring") version "2.3.20"
     id("org.springframework.boot") version "3.5.16"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.openapi.generator") version "7.23.0"
-    id("maven-publish")
     application
 }
 
@@ -41,11 +36,14 @@ java {
 ──────────────────────────────────────────────────────
 */
 
-file(".env").takeIf { it.exists() }?.readLines()?.forEach {
-    val (k, v) = it.split("=", limit = 2)
-    System.setProperty(k.trim(), v.trim())
-    logger.lifecycle("${k.trim()}=${v.trim()}")
-}
+file(".env").takeIf { it.exists() }?.readLines()
+    ?.map { it.trim() }
+    ?.filter { it.isNotEmpty() && !it.startsWith("#") && "=" in it }
+    ?.forEach {
+        val (k, v) = it.split("=", limit = 2)
+        System.setProperty(k.trim(), v.trim())
+        logger.lifecycle("loaded ${k.trim()} from .env")   // values are not logged
+    }
 
 val nexusUrl = System.getenv("NEXUS_URL") ?: System.getProperty("NEXUS_URL")
 val nexusUser = System.getenv("NEXUS_USERNAME") ?: System.getProperty("NEXUS_USERNAME")
@@ -76,6 +74,15 @@ repositories {
     maven("https://packages.confluent.io/maven/")
     nexusRepo()
     mavenCentral()
+}
+
+subprojects {
+    repositories {
+        gradlePluginPortal()
+        maven("https://packages.confluent.io/maven/")
+        nexusRepo()
+        mavenCentral()
+    }
 }
 
 application {
@@ -138,21 +145,6 @@ tasks.withType<Test> {
     useJUnitPlatform()
 }
 
-//──────────────────────────────────────────────────────
-//============== Nexus Publishing ==============
-//──────────────────────────────────────────────────────
-
-publishing {
-    publications {
-        create<MavenPublication>("mavenJava") {
-            from(components["java"])
-        }
-    }
-    repositories {
-        nexusRepo()
-    }
-}
-
 openApiGenerate {
     generatorName.set("kotlin-spring")
     inputSpec.set(rootDir.resolve("../api/subtitle-service.yaml").canonicalPath)
@@ -168,32 +160,15 @@ openApiGenerate {
     ))
 }
 
-// Generate Feign Client
-tasks.register<GenerateTask>("openApiGenerateClient") {
-    generatorName.set("kotlin-spring")
-    inputSpec.set(rootDir.resolve("../api/subtitle-service.yaml").canonicalPath)
-    outputDir.set(layout.buildDirectory.dir("generated-client").get().asFile.path)
-    apiPackage.set("com.sublio.subtitleservice.client.api")
-    invokerPackage.set("com.sublio.subtitleservice.client.invoker")
-    modelPackage.set("com.sublio.subtitleservice.client.model")
-    configOptions.set(mapOf(
-        "dateLibrary" to "java8",
-        "interfaceOnly" to "true",
-        "useSpringBoot3" to "true",
-        "library" to "spring-cloud"   // <-- ключевая опция
-    ))
-}
 
 sourceSets {
     main {
         kotlin {
             srcDir(layout.buildDirectory.dir("generated/src/main/kotlin"))
-            srcDir(layout.buildDirectory.dir("generated-client/src/main/kotlin"))
         }
     }
 }
 
 tasks.named("compileKotlin") {
     dependsOn(tasks.named("openApiGenerate"))
-    dependsOn(tasks.named("openApiGenerateClient"))
 }

@@ -31,8 +31,8 @@ services:
       - IPC_LOCK
     command: server
     healthcheck:
-      # 501 = sealed, это ОЖИДАЕМО до unseal - считаем это "живым" для healthcheck,
-      # реальная готовность к работе появится только после unseal (шаг руками)
+      # 501 = sealed, which is EXPECTED before unseal — treat this as "alive" for the healthcheck,
+      # actual readiness only comes after unseal (a manual step)
       test: [ "CMD-SHELL", "wget -qO- 'http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200' || exit 1" ]
       interval: 5s
       timeout: 3s
@@ -40,7 +40,7 @@ services:
     networks:
       - sublio-network
 
-  # --- Bootstrap: выдаёт свежий role-id/secret-id перед стартом агента ---
+  # --- Bootstrap: issues a fresh role-id/secret-id before the agent starts ---
   vault-bootstrap-redis:
     image: hashicorp/vault:1.17
     container_name: vault-bootstrap-redis
@@ -92,7 +92,7 @@ services:
       - sublio-network
     restart: "no"
 
-  # --- Vault Agent: логинится через AppRole, рендерит секрет в файл ---
+  # --- Vault Agent: logs in via AppRole, renders the secret to a file ---
   vault-agent-redis:
     image: hashicorp/vault:1.17
     container_name: vault-agent-redis
@@ -161,7 +161,7 @@ services:
     networks:
       - sublio-network
 
-  # --- Реальные сервисы: ждут готового рендера от своего агента ---
+  # --- Actual services: wait for their agent's rendered secret ---
   redis:
     image: redis:7-alpine
     container_name: redis
@@ -420,6 +420,7 @@ services:
     container_name: nexus
     ports:
       - "18081:8081"
+      - "18083:8083"
     environment:
       NEXUS_SECURITY_INITIAL_PASSWORD: ${NEXUS_SECURITY_INITIAL_PASSWORD}
       NEXUS_SECURITY_RANDOMPASSWORD: ${NEXUS_SECURITY_RANDOMPASSWORD}
@@ -431,6 +432,21 @@ services:
       timeout: 10s
       retries: 30
 
+  # One-shot container: configures Nexus via its REST API and exits.
+  # Idempotent — re-running `docker compose up` doesn't break anything.
+  nexus-init:
+    image: curlimages/curl:8.10.1
+    container_name: nexus-init
+    depends_on:
+      nexus:
+        condition: service_healthy
+    environment:
+      NEXUS_URL: http://nexus:8081
+      NEXUS_ADMIN_PASSWORD: ${NEXUS_SECURITY_INITIAL_PASSWORD}
+    volumes:
+      - ./nexus/nexus-init.sh:/init.sh:ro
+    entrypoint: [ "sh", "/init.sh" ]
+    restart: "no"
 
   vault-bootstrap-subtitle:
     image: hashicorp/vault:1.17

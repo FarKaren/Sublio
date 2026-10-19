@@ -28,7 +28,7 @@
           "Subtitles"
         ],
         "summary": "Process an SRT file into kanji + hiragana subtitle entries",
-        "description": "Reads the kanji SRT file from the shared volume at `srtPath`, parses it into timed entries, converts each entry's text to hiragana via Kuromoji tokenization, and persists both the kanji and hiragana text to PostgreSQL (subtitles + subtitle_entries tables). Called by job-service's orchestrator once transcription-worker publishes a \"transcribed\" event.\n",
+        "description": "Reads the kanji SRT file from the shared volume at `srtPath`, parses it into timed entries, converts each entry's text to hiragana via Kuromoji tokenization, and persists both the kanji and hiragana text to PostgreSQL (subtitles + subtitle_entries tables) in a single transaction — either the subtitle with all its entries is stored, or nothing is. Called by job-service's orchestrator once transcription-worker publishes a \"transcribed\" event.\n",
         "operationId": "processSubtitles",
         "security": [],
         "requestBody": {
@@ -53,7 +53,7 @@
             }
           },
           "400": {
-            "description": "Missing jobId/srtPath, or the file at srtPath is not a valid SRT",
+            "description": "Missing jobId/srtPath, srtPath points outside the shared volume, or the file at srtPath is not a valid SRT (including non-UTF-8 content)\n",
             "content": {
               "application/json": {
                 "schema": {
@@ -64,6 +64,12 @@
                     "value": {
                       "code": "MISSING_FIELDS",
                       "message": "jobId and srtPath are required."
+                    }
+                  },
+                  "invalidPath": {
+                    "value": {
+                      "code": "INVALID_PATH",
+                      "message": "Invalid srtPath."
                     }
                   },
                   "invalidSrt": {
@@ -96,6 +102,10 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INTERNAL_ERROR",
+                  "message": "Internal server error."
                 }
               }
             }
@@ -151,6 +161,10 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INTERNAL_ERROR",
+                  "message": "Internal server error."
                 }
               }
             }
@@ -183,6 +197,20 @@
                 "example": {
                   "code": "SUBTITLE_NOT_FOUND",
                   "message": "No subtitle found with this id."
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                },
+                "example": {
+                  "code": "INTERNAL_ERROR",
+                  "message": "Internal server error."
                 }
               }
             }
@@ -220,7 +248,7 @@
           },
           "srtPath": {
             "type": "string",
-            "description": "Path to the kanji SRT file on the shared volume.",
+            "description": "Path to the kanji SRT file, relative to the shared volume. Paths resolving outside the shared volume are rejected with INVALID_PATH.\n",
             "example": "processed/9c858901-8a57-4791-81fe-4c455b099bc9/kanji.srt"
           }
         }
@@ -270,7 +298,7 @@
         "properties": {
           "code": {
             "type": "string",
-            "description": "Machine-readable error code, e.g. MISSING_FIELDS, INVALID_SRT_FORMAT, SRT_FILE_NOT_FOUND, SUBTITLE_NOT_FOUND.\n",
+            "description": "Machine-readable error code, e.g. MISSING_FIELDS, INVALID_PATH, INVALID_SRT_FORMAT, SRT_FILE_NOT_FOUND, SUBTITLE_NOT_FOUND, INTERNAL_ERROR.\n",
             "example": "SUBTITLE_NOT_FOUND"
           },
           "message": {

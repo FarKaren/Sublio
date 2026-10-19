@@ -1,0 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/detekt-1.22.0.json
+#
+# Empty on purpose: buildUponDefaultConfig = true (set in build.gradle.kts) means
+# detekt's bundled default ruleset already applies. Add overrides here as needed.

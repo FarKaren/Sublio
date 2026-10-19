@@ -15,8 +15,12 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.http.HttpStatus
-import org.springframework.web.server.ResponseStatusException
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionStatus
+import org.springframework.transaction.support.TransactionTemplate
 import subtitle.configs.AppProperties
+import subtitle.exception.InvalidPathException
+import subtitle.exception.SrtFileNotFoundException
 import subtitle.models.Subtitle
 import subtitle.models.SubtitleEntry
 import subtitle.repository.SubtitleEntryRepository
@@ -30,9 +34,14 @@ import kotlin.io.path.deleteExisting
 import kotlin.io.path.writeText
 
 class SubtitlesServiceTest {
-
     private val subtitleRepository = mock(SubtitleRepository::class.java)
     private val subtitleEntryRepository = mock(SubtitleEntryRepository::class.java)
+    private val transactionTemplate =
+        TransactionTemplate(
+            mock(PlatformTransactionManager::class.java).apply {
+                `when`(getTransaction(any())).thenReturn(mock(TransactionStatus::class.java))
+            },
+        )
 
     private lateinit var processedDir: Path
     private lateinit var service: SubtitlesService
@@ -42,7 +51,14 @@ class SubtitlesServiceTest {
         processedDir = Files.createTempDirectory("sublio-processed-test")
 
         val appProperties = AppProperties(processedFileDir = processedDir.toString())
-        service = SubtitlesService(subtitleEntryRepository, subtitleRepository, appProperties, noopTracer())
+        service =
+            SubtitlesService(
+                subtitleEntryRepository,
+                subtitleRepository,
+                appProperties,
+                noopTracer(),
+                transactionTemplate,
+            )
 
         `when`(subtitleRepository.save(any())).thenAnswer { invocation ->
             (invocation.arguments[0] as Subtitle).apply { id = UUID.randomUUID() }
@@ -75,7 +91,7 @@ class SubtitlesServiceTest {
             1
             00:00:00,000 --> 00:00:02,000
             東京に行きます
-            """.trimIndent()
+            """.trimIndent(),
         )
 
         val jobId = UUID.randomUUID()
@@ -100,21 +116,23 @@ class SubtitlesServiceTest {
 
     @Test
     fun `rejects a srtPath that escapes the processed-files root with 400, without touching the repositories`() {
-        val ex = assertThrows(ResponseStatusException::class.java) {
-            service.processSrt(UUID.randomUUID(), "../../../etc/passwd")
-        }
+        val ex =
+            assertThrows(InvalidPathException::class.java) {
+                service.processSrt(UUID.randomUUID(), "../../../etc/passwd")
+            }
 
-        assertEquals(HttpStatus.BAD_REQUEST, ex.statusCode)
+        assertEquals(HttpStatus.BAD_REQUEST, ex.status)
         verifyNoInteractions(subtitleRepository)
         verifyNoInteractions(subtitleEntryRepository)
     }
 
     @Test
     fun `returns 404 when the srtPath does not exist under the processed-files root`() {
-        val ex = assertThrows(ResponseStatusException::class.java) {
-            service.processSrt(UUID.randomUUID(), "missing.srt")
-        }
+        val ex =
+            assertThrows(SrtFileNotFoundException::class.java) {
+                service.processSrt(UUID.randomUUID(), "missing.srt")
+            }
 
-        assertEquals(HttpStatus.NOT_FOUND, ex.statusCode)
+        assertEquals(HttpStatus.NOT_FOUND, ex.status)
     }
 }

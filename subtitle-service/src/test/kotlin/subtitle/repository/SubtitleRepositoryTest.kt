@@ -1,4 +1,4 @@
-package subtitle.repository.it
+package subtitle.repository
 
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.BeforeEach
@@ -17,7 +17,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class SubtitleRepositoryTest : AbstractSubtitleTest() {
-
     @Autowired
     lateinit var subtitleRepository: SubtitleRepository
 
@@ -34,7 +33,10 @@ class SubtitleRepositoryTest : AbstractSubtitleTest() {
         seededJobId = UUID.randomUUID()
         jdbcTemplate.update(
             "INSERT INTO sublio.jobs (id, user_id, idempotency_key, status) VALUES (?, ?, ?, ?)",
-            seededJobId, UUID.randomUUID(), UUID.randomUUID(), "DONE"
+            seededJobId,
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "DONE",
         )
     }
 
@@ -44,16 +46,17 @@ class SubtitleRepositoryTest : AbstractSubtitleTest() {
         assertNotNull(subtitle.id)
         assertNotNull(subtitle.createdAt)
 
-        val entry = subtitleEntryRepository.save(
-            SubtitleEntry().apply {
-                this.subtitle = subtitle
-                seqNum = 1
-                startTime = "00:00:00,000"
-                endTime = "00:00:02,000"
-                kanjiText = "東京に行きます"
-                hiraganaText = "とうきょうにいきます"
-            }
-        )
+        val entry =
+            subtitleEntryRepository.save(
+                SubtitleEntry().apply {
+                    this.subtitle = subtitle
+                    seqNum = 1
+                    startTime = "00:00:00,000"
+                    endTime = "00:00:02,000"
+                    kanjiText = "東京に行きます"
+                    hiraganaText = "とうきょうにいきます"
+                },
+            )
         assertNotNull(entry.id)
 
         val reloaded = subtitleEntryRepository.findById(entry.id!!).orElseThrow()

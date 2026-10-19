@@ -1,97 +1,106 @@
 package subtitle.service
 
-
-import io.micrometer.tracing.Span
-import org.springframework.http.HttpStatus
+import io.micrometer.tracing.Tracer
 import org.springframework.stereotype.Service
-import org.springframework.web.server.ResponseStatusException
+import org.springframework.transaction.support.TransactionTemplate
 import subtitle.configs.AppProperties
+import subtitle.exception.InvalidPathException
+import subtitle.exception.InvalidSrtFormatException
+import subtitle.exception.SrtFileNotFoundException
+import subtitle.exception.SrtParseException
 import subtitle.models.Subtitle
 import subtitle.models.SubtitleEntry
 import subtitle.repository.SubtitleEntryRepository
 import subtitle.repository.SubtitleRepository
 import subtitle.service.KuromojService.toHiragana
-import io.micrometer.tracing.Tracer
 import java.io.IOException
+import java.nio.charset.CharacterCodingException
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.*
+import java.util.UUID
 
 @Service
 class SubtitlesService(
     private val subtitleEntryRepository: SubtitleEntryRepository,
     private val subtitleRepository: SubtitleRepository,
     private val appProperties: AppProperties,
-    private val tracer: Tracer
+    private val tracer: Tracer,
+    private val transactionTemplate: TransactionTemplate,
 ) {
-
-    fun processSrt(jobId: UUID, strPath: String): UUID {
+    fun processSrt(
+        jobId: UUID,
+        strPath: String,
+    ): UUID {
         val span = tracer.nextSpan().name("processSrt").start()
-
 
         try {
             tracer.withSpan(span).use {
-                val safePath = resolveExisting(strPath)
+                // 1. Prepare outside the transaction: file IO, parsing, Kuromoji
+                val parsedEntries = parseSrt(resolveExisting(strPath))
+                val hiraganaTexts = parsedEntries.map { toHiragana(it.kanjiText) }
 
-                val fileContent = Files.readString(safePath)
-                val subtitleEntries = SrtParser.parse(fileContent)
+                // 2. Persist atomically: subtitle with all entries, or nothing
+                return transactionTemplate.execute {
+                    val savedSubtitle = subtitleRepository.save(Subtitle().apply { this.jobId = jobId })
 
-                val subtitle = Subtitle().apply { this.jobId = jobId }
-                val savedSubtitle = subtitleRepository.save(subtitle)
+                    val entries =
+                        parsedEntries.zip(hiraganaTexts) { parsed, hiragana ->
+                            SubtitleEntry().apply {
+                                subtitle = savedSubtitle
+                                seqNum = parsed.seqNum
+                                startTime = parsed.start
+                                endTime = parsed.end
+                                kanjiText = parsed.kanjiText
+                                hiraganaText = hiragana
+                            }
+                        }
+                    subtitleEntryRepository.saveAll(entries)
 
-                val subtitlesWithHiragana = subtitleEntries.map {
-                    val hiragana = toHiragana(it.kanjiText)
-                    SubtitleEntry().apply {
-                        this.subtitle = savedSubtitle
-                        seqNum = it.seqNum
-                        startTime = it.start
-                        endTime = it.end
-                        kanjiText = it.kanjiText
-                        hiraganaText = hiragana
-                    }
-                }
-
-                subtitleEntryRepository.saveAll(subtitlesWithHiragana)
-
-                return savedSubtitle.id!!
+                    savedSubtitle.id!!
+                }!!
             }
-
-        } catch (e: ResponseStatusException) {
-            throw e
-        } catch (e: Throwable) {
-            throw RuntimeException(e.message, e)
-        }
-        finally {
+        } finally {
             span.end()
         }
-
     }
+
+    // Maps file/parse problems to INVALID_SRT_FORMAT; raw file content stays in `cause`, never in the response
+    private fun parseSrt(path: Path): List<SrtEntry> =
+        try {
+            SrtParser.parse(Files.readString(path))
+        } catch (e: SrtParseException) {
+            throw InvalidSrtFormatException(e)
+        } catch (e: CharacterCodingException) {
+            throw InvalidSrtFormatException(e)
+        }
 
     private fun resolveExisting(strPath: String): Path {
         val baseDir = Path.of(appProperties.processedFileDir)
         val candidate = resolve(baseDir, strPath)
 
-        val real = try {
-            candidate.toRealPath()
-        } catch (e: IOException) {
-            throw ResponseStatusException(HttpStatus.NOT_FOUND, "File not found")
-        }
+        val real =
+            try {
+                candidate.toRealPath()
+            } catch (e: IOException) {
+                throw SrtFileNotFoundException(e)
+            }
 
-        val realBase = baseDir.toRealPath()
-        if (!real.startsWith(realBase)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid path")
+        if (!real.startsWith(baseDir.toRealPath())) {
+            throw InvalidPathException()
         }
 
         return real
     }
 
-    private fun resolve(baseDir: Path, userInput: String): Path {
+    private fun resolve(
+        baseDir: Path,
+        userInput: String,
+    ): Path {
         val base = baseDir.toAbsolutePath().normalize()
-
         val candidate = base.resolve(userInput).normalize()
 
         if (!candidate.startsWith(base)) {
-            throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid path")
+            throw InvalidPathException()
         }
 
         return candidate

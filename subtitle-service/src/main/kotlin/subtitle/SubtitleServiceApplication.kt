@@ -9,5 +9,3 @@ class SubtitleServiceApplication
 fun main(args: Array<String>) {
     runApplication<SubtitleServiceApplication>(*args)
 }
-
-

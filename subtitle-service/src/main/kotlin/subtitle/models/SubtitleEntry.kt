@@ -13,7 +13,6 @@ import jakarta.persistence.Table
 @Entity
 @Table(name = "subtitle_entries", schema = "sublio")
 open class SubtitleEntry {
-
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "id", nullable = false, updatable = false)

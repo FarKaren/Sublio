@@ -13,7 +13,6 @@ import java.util.UUID
 @Entity
 @Table(name = "subtitles", schema = "sublio")
 open class Subtitle {
-
     @Id
     @GeneratedValue
     @UuidGenerator
@@ -35,6 +34,5 @@ open class Subtitle {
 
     override fun hashCode(): Int = javaClass.hashCode()
 
-    override fun toString(): String =
-        "Subtitle(id=$id, jobId=$jobId, createdAt=$createdAt)"
+    override fun toString(): String = "Subtitle(id=$id, jobId=$jobId, createdAt=$createdAt)"
 }

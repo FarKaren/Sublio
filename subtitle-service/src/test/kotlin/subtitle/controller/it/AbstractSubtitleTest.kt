@@ -11,30 +11,29 @@ import org.testcontainers.containers.wait.strategy.Wait
 import java.nio.file.Files
 import java.nio.file.Path
 
-
 @ActiveProfiles("test")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Base class for @SpringBootTest integration tests to extend (shared Testcontainers setup) — not a static utility.
+@Suppress("UtilityClassWithPublicConstructor")
 abstract class AbstractSubtitleTest {
-
     companion object {
         val NETWORK: Network? = Network.newNetwork()
 
-
         @ServiceConnection
-        val springContainer = PostgreSQLContainer("postgres:latest")
-            .withNetwork(NETWORK)
-            .withDatabaseName("sublio")
-            .withUsername("postgres")
-            .withPassword("postgres")
-            .withExposedPorts(5432)
-            .withInitScript("db/init.sql")
-            .withNetworkAliases("postgres")
-            .waitingFor(Wait.forListeningPort())
+        val springContainer =
+            PostgreSQLContainer("postgres:latest")
+                .withNetwork(NETWORK)
+                .withDatabaseName("sublio")
+                .withUsername("postgres")
+                .withPassword("postgres")
+                .withExposedPorts(5432)
+                .withInitScript("db/init.sql")
+                .withNetworkAliases("postgres")
+                .waitingFor(Wait.forListeningPort())
 
         init {
             springContainer.start()
         }
-
 
         lateinit var processedFileDir: Path
 

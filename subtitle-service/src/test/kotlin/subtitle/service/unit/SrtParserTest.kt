@@ -1,17 +1,17 @@
 package subtitle.service.unit
 
+import subtitle.exception.SrtParseException
 import subtitle.service.SrtEntry
-import subtitle.service.SrtParseException
 import subtitle.service.SrtParser
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
 class SrtParserTest {
-
     @Test
     fun `parses well-formed SRT content into ordered entries`() {
-        val srt = """
+        val srt =
+            """
             1
             00:00:01,000 --> 00:00:03,000
             今日は良い天気です
@@ -19,7 +19,7 @@ class SrtParserTest {
             2
             00:00:04,500 --> 00:00:06,000
             東京に行きます
-        """.trimIndent()
+            """.trimIndent()
 
         val entries = SrtParser.parse(srt)
 
@@ -30,12 +30,13 @@ class SrtParserTest {
 
     @Test
     fun `joins multi-line subtitle text into a single entry`() {
-        val srt = """
+        val srt =
+            """
             1
             00:00:01,000 --> 00:00:03,000
             一行目
             二行目
-        """.trimIndent()
+            """.trimIndent()
 
         val entries = SrtParser.parse(srt)
 
@@ -51,17 +52,19 @@ class SrtParserTest {
 
     @Test
     fun `throws a clear error when a block is missing its text`() {
-        val srt = """
+        val srt =
+            """
             1
             00:00:01,000 --> 00:00:03,000
-        """.trimIndent()
+            """.trimIndent()
 
         assertFailsWith<SrtParseException> { SrtParser.parse(srt) }
     }
 
     @Test
     fun `throws a clear error on a non-numeric sequence number`() {
-        val srt = """
+        val srt =
+            """
             one
             00:00:01,000 --> 00:00:03,000
             テスト
@@ -69,18 +72,19 @@ class SrtParserTest {
             2
             00:00:04,000 --> 00:00:05,000
             テスト2
-        """.trimIndent()
+            """.trimIndent()
 
         assertFailsWith<SrtParseException> { SrtParser.parse(srt) }
     }
 
     @Test
     fun `throws a clear error on a malformed time range`() {
-        val srt = """
+        val srt =
+            """
             1
             00:00:01,000 - 00:00:03,000
             テスト
-        """.trimIndent()
+            """.trimIndent()
 
         assertFailsWith<SrtParseException> { SrtParser.parse(srt) }
     }

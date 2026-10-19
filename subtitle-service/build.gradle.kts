@@ -1,13 +1,13 @@
 plugins {
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.spring") version "2.3.20"
+    kotlin("jvm") version "2.3.21"
+    kotlin("plugin.spring") version "2.3.21"
     id("org.springframework.boot") version "3.5.16"
     id("io.spring.dependency-management") version "1.1.7"
     id("org.openapi.generator") version "7.23.0"
+    id("org.jlleitschuh.gradle.ktlint") version "14.2.0"
+    id("dev.detekt") version "2.0.0-alpha.3"
     application
 }
-
-
 
 group = "com.sublio"
 version = "0.0.1-SNAPSHOT"
@@ -23,7 +23,6 @@ val postgresDriverVersion = stringProperty("postgresDriverVersion")
 val logstashEncoderVersion = stringProperty("logstashEncoderVersion")
 val vaultVersion = stringProperty("vaultVersion")
 
-
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(24)
@@ -36,13 +35,15 @@ java {
 ──────────────────────────────────────────────────────
 */
 
-file(".env").takeIf { it.exists() }?.readLines()
+file(".env")
+    .takeIf { it.exists() }
+    ?.readLines()
     ?.map { it.trim() }
     ?.filter { it.isNotEmpty() && !it.startsWith("#") && "=" in it }
     ?.forEach {
         val (k, v) = it.split("=", limit = 2)
         System.setProperty(k.trim(), v.trim())
-        logger.lifecycle("loaded ${k.trim()} from .env")   // values are not logged
+        logger.lifecycle("loaded ${k.trim()} from .env") // values are not logged
     }
 
 val nexusUrl = System.getenv("NEXUS_URL") ?: System.getProperty("NEXUS_URL")
@@ -53,7 +54,7 @@ val nexusConfigured = !nexusUrl.isNullOrBlank() && !nexusUser.isNullOrBlank() &&
 if (!nexusConfigured) {
     logger.lifecycle(
         "NEXUS details are not set (NEXUS_URL, NEXUS_USERNAME, NEXUS_PASSWORD) — " +
-                "falling back to mavenCentral, Nexus pull-through cache disabled for this build."
+            "falling back to mavenCentral, Nexus pull-through cache disabled for this build.",
     )
 }
 
@@ -129,7 +130,7 @@ dependencies {
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:testcontainers")
     testImplementation("org.testcontainers:junit-jupiter")
-    testImplementation("org.testcontainers:postgresql:${testContainersVersion}")
+    testImplementation("org.testcontainers:postgresql:$testContainersVersion")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     runtimeOnly("org.postgresql:postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -148,18 +149,24 @@ tasks.withType<Test> {
 openApiGenerate {
     generatorName.set("kotlin-spring")
     inputSpec.set(rootDir.resolve("../api/subtitle-service.yaml").canonicalPath)
-    outputDir.set(layout.buildDirectory.dir("generated").get().asFile.path)
+    outputDir.set(
+        layout.buildDirectory
+            .dir("generated")
+            .get()
+            .asFile.path,
+    )
     apiPackage.set("com.sublio.subtitleservice.api")
     invokerPackage.set("com.sublio.subtitleservice.invoker")
     modelPackage.set("com.sublio.subtitleservice.model")
-    configOptions.set(mapOf(
-        "dateLibrary" to "java8",
-        "interfaceOnly" to "true",
-        "useSpringBoot3" to "true",
-        "useTags" to "true"
-    ))
+    configOptions.set(
+        mapOf(
+            "dateLibrary" to "java8",
+            "interfaceOnly" to "true",
+            "useSpringBoot3" to "true",
+            "useTags" to "true",
+        ),
+    )
 }
-
 
 sourceSets {
     main {
@@ -171,4 +178,24 @@ sourceSets {
 
 tasks.named("compileKotlin") {
     dependsOn(tasks.named("openApiGenerate"))
+}
+
+tasks.matching { it.name.startsWith("runKtlintCheckOver") || it.name.startsWith("runKtlintFormatOver") }.configureEach {
+    dependsOn(tasks.named("openApiGenerate"))
+}
+
+tasks.named("detekt") {
+    dependsOn(tasks.named("openApiGenerate"))
+}
+
+detekt {
+    buildUponDefaultConfig = true
+    config.setFrom(file("detekt.yml"))
+}
+
+tasks.withType<org.jlleitschuh.gradle.ktlint.tasks.BaseKtLintCheckTask> {
+    exclude { it.file.path.contains("/generated/") }
+}
+tasks.withType<org.jlleitschuh.gradle.ktlint.tasks.KtLintFormatTask> {
+    exclude { it.file.path.contains("/generated/") }
 }

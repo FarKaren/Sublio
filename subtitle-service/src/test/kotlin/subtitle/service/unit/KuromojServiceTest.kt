@@ -5,8 +5,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class KuromojServiceTest {
-
-
     @Test
     fun `converts a known kanji sentence to its hiragana reading`() {
         assertEquals("たべる", KuromojService.toHiragana("食べる"))

@@ -14,7 +14,6 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 
 class SublioApiImplTest : AbstractSubtitleTest() {
-
     @Autowired
     lateinit var restTemplate: TestRestTemplate
 
@@ -31,7 +30,10 @@ class SublioApiImplTest : AbstractSubtitleTest() {
         jobId = UUID.randomUUID()
         jdbcTemplate.update(
             "INSERT INTO sublio.jobs (id, user_id, idempotency_key, status) VALUES (?, ?, ?, ?)",
-            jobId, UUID.randomUUID(), UUID.randomUUID(), "TRANSCRIBED"
+            jobId,
+            UUID.randomUUID(),
+            UUID.randomUUID(),
+            "TRANSCRIBED",
         )
     }
 
@@ -42,14 +44,15 @@ class SublioApiImplTest : AbstractSubtitleTest() {
             1
             00:00:00,000 --> 00:00:02,000
             東京に行きます
-            """.trimIndent()
+            """.trimIndent(),
         )
 
-        val response = restTemplate.postForEntity(
-            "http://localhost:$port/process",
-            mapOf("jobId" to jobId, "srtPath" to "job-$jobId.srt"),
-            Map::class.java
-        )
+        val response =
+            restTemplate.postForEntity(
+                "http://localhost:$port/process",
+                mapOf("jobId" to jobId, "srtPath" to "job-$jobId.srt"),
+                Map::class.java,
+            )
 
         assertEquals(HttpStatus.CREATED, response.statusCode)
         assertNotNull(response.body?.get("subtitleId"))
@@ -57,11 +60,12 @@ class SublioApiImplTest : AbstractSubtitleTest() {
 
     @Test
     fun `POST process rejects a srtPath outside the shared volume with 400`() {
-        val response = restTemplate.postForEntity(
-            "http://localhost:$port/process",
-            mapOf("jobId" to UUID.randomUUID(), "srtPath" to "../../../etc/passwd"),
-            Map::class.java
-        )
+        val response =
+            restTemplate.postForEntity(
+                "http://localhost:$port/process",
+                mapOf("jobId" to UUID.randomUUID(), "srtPath" to "../../../etc/passwd"),
+                Map::class.java,
+            )
 
         assertEquals(HttpStatus.BAD_REQUEST, response.statusCode)
     }

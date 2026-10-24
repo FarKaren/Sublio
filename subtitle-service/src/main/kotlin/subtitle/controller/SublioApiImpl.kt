@@ -14,9 +14,15 @@ import java.util.UUID
 class SublioApiImpl(
     private val subtitlesService: SubtitlesService,
 ) : SubtitlesApi {
-    override fun deleteSubtitle(id: UUID): ResponseEntity<Unit> = TODO("Provide the return value")
+    override fun deleteSubtitle(id: UUID): ResponseEntity<Unit> {
+        subtitlesService.deleteSubtitle(id)
+        return ResponseEntity.noContent().build()
+    }
 
-    override fun getSubtitleEntries(id: UUID): ResponseEntity<List<SubtitleEntry>> = TODO()
+    override fun getSubtitleEntries(id: UUID): ResponseEntity<List<SubtitleEntry>> {
+        val subtitles = subtitlesService.getSubtitleEntries(id)
+        return ResponseEntity.ok(subtitles)
+    }
 
     override fun processSubtitles(processRequest: ProcessRequest): ResponseEntity<ProcessResponse> {
         val subtitleId = subtitlesService.processSrt(processRequest.jobId, processRequest.srtPath)

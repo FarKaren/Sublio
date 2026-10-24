@@ -29,6 +29,8 @@ class InvalidSrtFormatException(
 
 class InvalidPathException : ApiException(HttpStatus.BAD_REQUEST, "INVALID_PATH", "Invalid srtPath.")
 
+class SubtitleNotFoundException : ApiException(HttpStatus.NOT_FOUND, "SUBTITLE_NOT_FOUND", "No subtitle found with id.")
+
 class SrtParseException(
     message: String,
 ) : RuntimeException(message)

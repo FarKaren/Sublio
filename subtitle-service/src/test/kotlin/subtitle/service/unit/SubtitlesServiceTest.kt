@@ -21,6 +21,7 @@ import org.springframework.transaction.support.TransactionTemplate
 import subtitle.configs.AppProperties
 import subtitle.exception.InvalidPathException
 import subtitle.exception.SrtFileNotFoundException
+import subtitle.exception.SubtitleNotFoundException
 import subtitle.models.Subtitle
 import subtitle.models.SubtitleEntry
 import subtitle.repository.SubtitleEntryRepository
@@ -134,5 +135,68 @@ class SubtitlesServiceTest {
             }
 
         assertEquals(HttpStatus.NOT_FOUND, ex.status)
+    }
+
+    @Test
+    fun `getSubtitleEntries returns entries in sequence order`() {
+        val subtitleId = UUID.randomUUID()
+        `when`(subtitleRepository.existsById(subtitleId)).thenReturn(true)
+        `when`(subtitleEntryRepository.findBySubtitleIdOrderBySeqNumAsc(subtitleId)).thenReturn(
+            listOf(
+                SubtitleEntry().apply {
+                    seqNum = 1
+                    startTime = "00:00:00,000"
+                    endTime = "00:00:02,000"
+                    kanjiText = "東京に行きます"
+                    hiraganaText = "とうきょうにいきます"
+                },
+            ),
+        )
+
+        val entries = service.getSubtitleEntries(subtitleId)
+
+        assertEquals(1, entries.size)
+        assertEquals("東京に行きます", entries[0].kanji)
+        assertEquals("とうきょうにいきます", entries[0].hiragana)
+    }
+
+    @Test
+    fun `getSubtitleEntries throws SubtitleNotFoundException for an unknown id`() {
+        val subtitleId = UUID.randomUUID()
+        `when`(subtitleRepository.existsById(subtitleId)).thenReturn(false)
+
+        val ex =
+            assertThrows(SubtitleNotFoundException::class.java) {
+                service.getSubtitleEntries(subtitleId)
+            }
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.status)
+        verifyNoInteractions(subtitleEntryRepository)
+    }
+
+    @Test
+    fun `deleteSubtitle deletes the entries and the subtitle itself`() {
+        val subtitleId = UUID.randomUUID()
+        `when`(subtitleRepository.existsById(subtitleId)).thenReturn(true)
+
+        service.deleteSubtitle(subtitleId)
+
+        verify(subtitleEntryRepository).deleteBySubtitleId(subtitleId)
+        verify(subtitleRepository).deleteById(subtitleId)
+    }
+
+    @Test
+    fun `deleteSubtitle throws SubtitleNotFoundException for an unknown id and deletes nothing`() {
+        val subtitleId = UUID.randomUUID()
+        `when`(subtitleRepository.existsById(subtitleId)).thenReturn(false)
+
+        val ex =
+            assertThrows(SubtitleNotFoundException::class.java) {
+                service.deleteSubtitle(subtitleId)
+            }
+
+        assertEquals(HttpStatus.NOT_FOUND, ex.status)
+        verifyNoInteractions(subtitleEntryRepository)
+        verify(subtitleRepository, org.mockito.Mockito.never()).deleteById(any(UUID::class.java))
     }
 }

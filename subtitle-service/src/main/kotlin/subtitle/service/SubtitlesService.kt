@@ -8,6 +8,8 @@ import subtitle.exception.InvalidPathException
 import subtitle.exception.InvalidSrtFormatException
 import subtitle.exception.SrtFileNotFoundException
 import subtitle.exception.SrtParseException
+import subtitle.exception.SubtitleNotFoundException
+import subtitle.extenstions.toSubEntryDto
 import subtitle.models.Subtitle
 import subtitle.models.SubtitleEntry
 import subtitle.repository.SubtitleEntryRepository
@@ -27,6 +29,41 @@ class SubtitlesService(
     private val tracer: Tracer,
     private val transactionTemplate: TransactionTemplate,
 ) {
+    fun getSubtitleEntries(id: UUID): List<com.sublio.subtitleservice.model.SubtitleEntry> {
+        val span = tracer.nextSpan().name("getSubtitleEntries").start()
+
+        try {
+            tracer.withSpan(span).use {
+                return transactionTemplate.execute {
+                    if (!subtitleRepository.existsById(id)) throw SubtitleNotFoundException()
+
+                    subtitleEntryRepository
+                        .findBySubtitleIdOrderBySeqNumAsc(id)
+                        .map { it.toSubEntryDto() }
+                }!!
+            }
+        } finally {
+            span.end()
+        }
+    }
+
+    fun deleteSubtitle(id: UUID) {
+        val span = tracer.nextSpan().name("deleteSubtitle").start()
+
+        try {
+            tracer.withSpan(span).use {
+                transactionTemplate.executeWithoutResult {
+                    if (!subtitleRepository.existsById(id)) throw SubtitleNotFoundException()
+
+                    subtitleEntryRepository.deleteBySubtitleId(id)
+                    subtitleRepository.deleteById(id)
+                }
+            }
+        } finally {
+            span.end()
+        }
+    }
+
     fun processSrt(
         jobId: UUID,
         strPath: String,
@@ -35,11 +72,9 @@ class SubtitlesService(
 
         try {
             tracer.withSpan(span).use {
-                // 1. Prepare outside the transaction: file IO, parsing, Kuromoji
                 val parsedEntries = parseSrt(resolveExisting(strPath))
                 val hiraganaTexts = parsedEntries.map { toHiragana(it.kanjiText) }
 
-                // 2. Persist atomically: subtitle with all entries, or nothing
                 return transactionTemplate.execute {
                     val savedSubtitle = subtitleRepository.save(Subtitle().apply { this.jobId = jobId })
 
@@ -64,7 +99,6 @@ class SubtitlesService(
         }
     }
 
-    // Maps file/parse problems to INVALID_SRT_FORMAT; raw file content stays in `cause`, never in the response
     private fun parseSrt(path: Path): List<SrtEntry> =
         try {
             SrtParser.parse(Files.readString(path))

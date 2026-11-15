@@ -1,0 +1,77 @@
+# Isolated, disposable credentials and data. No host ports or production volumes.
+services:
+  vault:
+    image: hashicorp/vault:1.17
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: docker-test-root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    command: server -dev
+    cap_add: [IPC_LOCK]
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: docker-test-only
+    volumes:
+      - ../../keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json:ro
+
+  prepare:
+    image: python:3.13-alpine
+    command: python /tests/check.py prepare
+    depends_on: [vault, keycloak]
+    volumes:
+      - ./check.py:/tests/check.py:ro
+      - ../../vault/policies:/policies:ro
+
+  bootstrap:
+    image: hashicorp/vault:1.17
+    depends_on:
+      prepare:
+        condition: service_completed_successfully
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: docker-test-bootstrap
+    entrypoint: ["/scripts/bootstrap-approle.sh", "auth-role", "/vault/config"]
+    volumes:
+      - ../../vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - approle:/vault/config
+
+  auth-service:
+    build:
+      context: ../../..
+      dockerfile: auth-service/Dockerfile
+      target: runtime
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_SECRET_ID_FILE: /vault/config/secret-id
+      KEYCLOAK_URL: http://keycloak:8080
+      TRACING_ENABLED: "false"
+      METRICS_EXPORTER: none
+    volumes:
+      - approle:/vault/config:ro
+
+  unit-tests:
+    build:
+      context: ../../..
+      dockerfile: auth-service/Dockerfile
+      target: test
+
+  verify:
+    image: python:3.13-alpine
+    command: python /tests/check.py verify
+    depends_on:
+      auth-service:
+        condition: service_healthy
+      unit-tests:
+        condition: service_completed_successfully
+    volumes:
+      - ./check.py:/tests/check.py:ro
+      - approle:/vault/config:ro
+
+volumes:
+  approle:

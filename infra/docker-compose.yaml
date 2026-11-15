@@ -448,6 +448,47 @@ services:
     entrypoint: [ "sh", "/init.sh" ]
     restart: "no"
 
+  vault-bootstrap-auth:
+    image: hashicorp/vault:1.17
+    profiles: ["auth"]
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: ${BOOTSTRAP_TOKEN}
+    entrypoint: ["/scripts/bootstrap-approle.sh", "auth-role", "/vault/config"]
+    volumes:
+      - ./vault/scripts/bootstrap-approle.sh:/scripts/bootstrap-approle.sh:ro
+      - vault-approle-auth:/vault/config
+    networks:
+      - sublio-network
+    restart: "no"
+
+  auth-service:
+    profiles: ["auth"]
+    build:
+      context: ..
+      dockerfile: auth-service/Dockerfile
+      target: runtime
+    ports:
+      - "8081:8081"
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_SECRET_ID_FILE: /vault/config/secret-id
+      KEYCLOAK_URL: http://keycloak:8080
+      OTLP_EXPORTER_ENDPOINT: http://alloy:4318
+    volumes:
+      - vault-approle-auth:/vault/config:ro
+    depends_on:
+      vault-bootstrap-auth:
+        condition: service_completed_successfully
+      keycloak:
+        condition: service_started
+    networks:
+      - sublio-network
+    restart: "no"
+
   vault-bootstrap-subtitle:
     image: hashicorp/vault:1.17
     container_name: vault-bootstrap-subtitle
@@ -507,6 +548,7 @@ volumes:
   postgres_data:
   keycloak-config-rendered:
   vault-approle-subtitle:
+  vault-approle-auth:
   nexus-data:
 
 networks:

@@ -1,0 +1,5 @@
+**
+!auth-service/
+!auth-service/**
+**/.env*
+**/.DS_Store

@@ -1,0 +1,52 @@
+env: local
+
+http_server:
+  address: "localhost:8081"
+  read_timeout: 10s
+  read_header_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+
+keycloak:
+  url: "http://localhost:8090"
+  realm: "sublio"
+  client_id: "auth-service-bff"
+  request_timeout: 5s
+  # client_secret is fetched from Vault at startup, never from env or YAML.
+  # The BFF service account has manage-users in the imported sublio realm.
+
+vault:
+  address: "http://localhost:8200"   # overridden by VAULT_ADDR
+  # role_id: provided through VAULT_ROLE_ID (auth-role)
+  secret_id_file: "/run/secrets/vault_secret_id" # VAULT_SECRET_ID_FILE
+  request_timeout: 10s
+
+security:
+  cookie_name: "sublio_refresh"
+  cookie_secure: false          # true under HTTPS in production
+  cookie_same_site: "lax"      # strict, lax, none (none requires Secure)
+  allowed_origins:
+    - "http://localhost:8081"
+    - "http://localhost:3000"
+
+management:
+  health_path: "/actuator/health"
+  info_path: "/actuator/info"
+  metrics_path: "/actuator/metrics"
+  prometheus_path: "/actuator/prometheus"
+  prometheus_enabled: true
+
+telemetry:
+  service_name: "auth-service"
+  tracing:
+    enabled: true
+    sampling_probability: 1.0
+  otlp:
+    endpoint: "http://localhost:4318"
+    protocol: "http/protobuf"
+  metrics:
+    exporter: "otlp"           # otlp or none
+    interval: 15s
+  logs:
+    exporter: "none"           # not supported: logs remain in slog

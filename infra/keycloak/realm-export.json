@@ -5,22 +5,40 @@
   "failureFactor": 5,
   "accessTokenLifespan": 900,
   "ssoSessionMaxLifespan": 2592000,
-  "clients": [{
-    "clientId": "auth-service-bff",
-    "enabled": true,
-    "protocol": "openid-connect",
-    "publicClient": false,
-    "standardFlowEnabled": false,
-    "implicitFlowEnabled": false,
-    "directAccessGrantsEnabled": true,
-    "serviceAccountsEnabled": true
-  }],
-  "users": [{
-    "username": "service-account-auth-service-bff",
-    "enabled": true,
-    "serviceAccountClientId": "auth-service-bff",
-    "clientRoles": {
-      "realm-management": ["manage-users"]
+  "clients": [
+    {
+      "clientId": "auth-service-bff",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": true
     }
-  }]
+  ],
+  "users": [
+    {
+      "username": "service-account-auth-service-bff",
+      "enabled": true,
+      "serviceAccountClientId": "auth-service-bff",
+      "clientRoles": {
+        "realm-management": [
+          "manage-users"
+        ]
+      }
+    }
+  ],
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [
+      {
+        "providerId": "declarative-user-profile",
+        "config": {
+          "kc.user.profile.config": [
+            "{\"attributes\":[{\"name\":\"username\",\"displayName\":\"${username}\",\"validations\":{\"length\":{\"min\":3,\"max\":255},\"username-prohibited-characters\":{},\"up-username-not-idn-homograph\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"email\",\"displayName\":\"${email}\",\"validations\":{\"email\":{},\"length\":{\"max\":255}},\"required\":{\"roles\":[\"user\"]},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"firstName\",\"displayName\":\"${firstName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}},{\"name\":\"lastName\",\"displayName\":\"${lastName}\",\"validations\":{\"length\":{\"max\":255},\"person-name-prohibited-characters\":{}},\"permissions\":{\"view\":[\"admin\",\"user\"],\"edit\":[\"admin\",\"user\"]}}]}"
+          ]
+        }
+      }
+    ]
+  }
 }

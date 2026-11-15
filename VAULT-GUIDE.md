@@ -262,9 +262,9 @@ project-root/
 │       │   ├── keycloak-policy.hcl        # KV (admin creds) + database/creds/keycloak_role
 │       │   └── bootstrap-policy.hcl
 │       ├── scripts/
-│       │   ├── apply-vault-config.sh      # руками, один раз / при добавлении роли
-│       │   ├── bootstrap-approle.sh       # автоматически, контейнером, при каждом up
-│       │   └── init-keycloak-db.sh        # автоматически, контейнером keycloak-db-init, при каждом up
+│       │   ├── apply-vault-config.sh      # manually, once / when adding a role
+│       │   ├── bootstrap-approle.sh       # automatically, by a container, on every startup
+│       │   └── init-keycloak-db.sh        # automatically, by keycloak-db-init, on every startup
 │       ├── agents/
 │       │   ├── redis-agent.hcl
 │       │   ├── postgres-agent.hcl
@@ -277,10 +277,10 @@ project-root/
 ├── docker-compose.yaml
 │
 └── (НЕ в git — только в рантайме, внутри Docker volumes):
-    ├── vault-data/                    # хранилище самого Vault (зашифровано)
+    ├── vault-data/                    # encrypted Vault storage
     ├── vault-approle-redis/
-    │   ├── role-id                    # кладёт vault-bootstrap-redis
-    │   └── secret-id                  # свежий при каждом старте, удаляется агентом после чтения
+    │   ├── role-id                    # written by vault-bootstrap-redis
+    │   └── secret-id                  # fresh on each startup; deleted by the agent after reading
     ├── vault-approle-postgres/
     │   ├── role-id
     │   └── secret-id
@@ -288,11 +288,11 @@ project-root/
     │   ├── role-id
     │   └── secret-id
     ├── redis-config-rendered/
-    │   └── redis.conf                 # пишет vault-agent-redis
+    │   └── redis.conf                 # written by vault-agent-redis
     ├── postgres-config-rendered/
-    │   └── postgres_password.txt      # пишет vault-agent-postgres (POSTGRES_USER берётся из .env, не из Vault)
+    │   └── postgres_password.txt      # written by vault-agent-postgres (POSTGRES_USER comes from .env)
     └── keycloak-config-rendered/
-        └── keycloak.env                # пишет vault-agent-keycloak (KC_DB_* динамические + KC_BOOTSTRAP_ADMIN_* статичные)
+        └── keycloak.env                # written by vault-agent-keycloak (dynamic KC_DB_* + static KC_BOOTSTRAP_ADMIN_*)
 ```
 
 Keycloak **не получает отдельный Postgres-контейнер** — он живёт на том же
@@ -310,13 +310,13 @@ Docker volumes, их не видно в репозитории вообще.
 ### Шаг 1 — поднять только Vault
 
 ```yaml
-# фрагмент docker-compose.yaml
+# docker-compose.yaml excerpt
 services:
   vault:
     image: hashicorp/vault:1.17
     container_name: vault
     ports:
-      - "8200:8200"        # проброшен на хост, поэтому CLI с хоста тоже работает
+      - "8200:8200"        # published to the host so the host CLI can connect
     volumes:
       - ./infra/vault/vault-server.hcl:/vault/config/vault.hcl:ro
       - vault-data:/vault/data
@@ -333,7 +333,7 @@ storage "file" {
 
 listener "tcp" {
   address     = "0.0.0.0:8200"
-  tls_disable = true   # локальная разработка; на проде TLS обязателен
+  tls_disable = true   # local development; TLS is required in production
 }
 
 ui = true
@@ -380,9 +380,9 @@ export VAULT_TOKEN="hvs.AbCdEfGhIjKlMnOpQrSt"
 ### Шаг 3 — KV v2 и реальные секреты
 
 ```bash
-# POSTGRES_USER/POSTGRES_DB должны совпадать с тем, что Postgres получит
-# при initdb (infra/.env) — подтягиваем их оттуда вместо повторного набора
-# вручную, чтобы не разъехались два независимых литерала
+# POSTGRES_USER/POSTGRES_DB must match the values Postgres receives
+# during initdb (infra/.env); load them from that file instead of retyping
+# them manually, so the values cannot drift apart
 set -a && source infra/.env && set +a
 
 vault secrets enable -path=secret -version=2 kv
@@ -398,9 +398,8 @@ vault kv put secret/keycloak \
   admin_user="admin" \
   admin_password="$(openssl rand -base64 24)"
   
-vault kv put secret/auth \
-  client_id="from keycloak" \
-  secret_id="from keycloak"
+# Populate secret/keycloak-client after Keycloak starts (step 6),
+# when the actual generated auth-service-bff client secret is available.
 
 vault kv put secret/job \
   redis_pass="$(vault kv get -field=password secret/redis)"
@@ -430,7 +429,6 @@ Engine, настройка которого — отдельный раздел 
 vault kv get secret/redis
 vault kv get secret/postgres
 vault kv get secret/keycloak
-vault kv get secret/auth
 vault kv get secret/job
 vault kv get secret/media
 vault kv get secret/worker
@@ -492,7 +490,7 @@ roles:
 
 if neccessary add perms for write - chmod +x apply-vault-config.sh
 ```bash
-export VAULT_TOKEN="<root-token>"   # если новая сессия — экспортировать заново
+export VAULT_TOKEN="<root-token>"   # export again in a new shell session
 vault/scripts/apply-vault-config.sh
 ```
 
@@ -593,7 +591,23 @@ docker compose up -d
 С этого момента bootstrap → agent → сервис отрабатывают автоматически при
 каждом старте — **включая** `keycloak-db-init` → `vault-agent-keycloak` →
 `keycloak` (детали раздел 6.1). Никаких дополнительных ручных команд для
-Keycloak после Шага 5.1 не требуется.
+Keycloak для его базы после Шага 5.1 не требуется.
+
+Для **auth-service** после запуска Keycloak нужен отдельный KV-секрет.
+В консоли `http://localhost:8090`: realm **sublio → Clients → auth-service-bff →
+Credentials**. Скопируйте именно сгенерированный Keycloak client secret:
+
+```bash
+export VAULT_ADDR=http://localhost:8200
+vault kv put secret/keycloak-client client_secret="<actual Keycloak BFF client secret>"
+docker compose up -d --build auth-service
+```
+
+AppRole-файлы создаёт `vault-bootstrap-auth` в `vault-approle-auth` и монтирует
+в auth-service как `/vault/config/role-id` и `/vault/config/secret-id`.
+Это не содержимое KV: Go SDK сначала входит в Vault по этим файлам,
+затем читает `secret/data/keycloak-client`. Подробнее и команды перезапуска
+с новым одноразовым SecretID — README, шаг 4.
 
 ---
 
@@ -649,7 +663,7 @@ vault-agent-keycloak:
   depends_on:
     vault-bootstrap-keycloak:
       condition: service_completed_successfully
-    keycloak-db-init:                        # <-- критично: keycloak_owner уже должен существовать
+    keycloak-db-init:                        # <-- required: keycloak_owner must already exist
       condition: service_completed_successfully
 ```
 
@@ -662,8 +676,8 @@ vault-agent-keycloak:
 
 ```bash
 # infra/vault/scripts/init-keycloak-db.sh
-# Выполняется контейнером keycloak-db-init при КАЖДОМ docker compose up.
-# Идемпотентно: безопасно гонять повторно, ничего не пересоздаёт, если уже есть.
+# Run by keycloak-db-init on every docker compose up.
+# Idempotent: safe to rerun; existing objects are not recreated.
 
 set -eu
 export PGPASSWORD="$(cat /run/secrets/postgres_password.txt)"
@@ -720,23 +734,23 @@ keycloak:
       exec /opt/keycloak/bin/kc.sh start-dev --import-realm --metrics-enabled=true
   environment:
     KC_DB: postgres
-    KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_POSTGRES_DB}   # ОБЩИЙ инстанс, не keycloak-postgres
+    KC_DB_URL: jdbc:postgresql://postgres:5432/${KEYCLOAK_POSTGRES_DB}   # shared PostgreSQL instance
   depends_on:
     vault-agent-keycloak:
       condition: service_healthy
     keycloak-db-init:
       condition: service_completed_successfully
   ports:
-    - "8090:8080"   # admin console: localhost:8090 — dev-only, НЕ через gateway
+    - "8090:8080"   # admin console: localhost:8090; development only, bypasses the gateway
     - "9000:9000"   # health/metrics
 ```
 
 ### Проверка
 
 ```bash
-vault read database/creds/keycloak_role     # видно новую username/password + lease_id
+vault read database/creds/keycloak_role     # shows the new username/password and lease_id
 open http://localhost:8090                  # admin console
-docker compose logs keycloak-db-init        # подтверждает, что база/owner уже существовали или были созданы
+docker compose logs keycloak-db-init        # confirms the database and owner already existed or were created
 ```
 
 ---
@@ -799,37 +813,43 @@ Vault и его данные не затронуты.
 
 ## 9. Добавление нового сервиса
 
-Пример: `auth-service`.
+Пример: `auth-service` (его policy, роль и Docker bootstrap уже есть в репозитории).
+Не путайте AppRole SecretID в файле `/vault/config/secret-id` с секретом клиента
+Keycloak в KV `secret/keycloak-client`: первый нужен для входа в Vault, второй
+сервис читает из Vault после входа. Полный порядок запуска — README, шаг 4.
 
 ```bash
 # 1. Policy
-cat > infra/vault/policies/auth-service-policy.hcl << 'EOF'
-path "secret/data/auth-service" {
+cat > infra/vault/policies/auth-policy.hcl << 'EOF'
+path "secret/data/keycloak-client" {
   capabilities = ["read"]
 }
 EOF
 
-# 2. Секрет
-vault kv put secret/auth-service jwt_secret="$(openssl rand -base64 32)"
+# 2. Secret
+# After importing the sublio realm: Clients → auth-service-bff → Credentials.
+# Use the actual Keycloak secret, rather than a newly generated random value.
+vault kv put secret/keycloak-client client_secret="<actual Keycloak BFF client secret>"
 
-# 3. Роль — добавить в roles.yaml
-#    - name: auth-service-role
-#      policy_file: auth-service-policy.hcl
+# 3. Role: add to roles.yaml
+#    - name: auth-role
+#      policy_file: auth-policy.hcl
 #      token_ttl: 1h
 #      token_max_ttl: 4h
 #      secret_id_ttl: 10m
 #      secret_id_num_uses: 1
 
-# 4. Применить манифест
+# 4. Apply the manifest
 export VAULT_TOKEN="<root-token>"
 ./infra/vault/scripts/apply-vault-config.sh
 
-# 5. Добавить в docker-compose.yaml:
-#    vault-bootstrap-auth-service, vault-agent-auth-service, auth-service
-#    + agents/auth-service-agent.hcl + templates/auth-service.tpl
+# 5. Add to docker-compose.yaml:
+#    vault-bootstrap-auth + auth-service + volume vault-approle-auth
+#    Bootstrap creates role-id/secret-id; the Go SDK reads KV directly.
+#    No Vault Agent is started for auth-service.
 
-# 6. Поднять только новые сервисы
-docker compose up -d vault-bootstrap-auth-service vault-agent-auth-service auth-service
+# 6. Start only the new services
+docker compose -f infra/docker-compose.yaml up -d --build auth-service
 ```
 
 Остальные сервисы при этом не трогаются.
@@ -848,15 +868,15 @@ docker compose up -d vault-bootstrap-auth-service vault-agent-auth-service auth-
 ```bash
 export VAULT_TOKEN="<root-token>"
 
-vault delete auth/approle/role/auth-service-role
-vault policy delete auth-service-policy
-vault kv metadata delete secret/auth-service   # насовсем, с историей версий
+vault delete auth/approle/role/auth-role
+vault policy delete auth-policy
+vault kv metadata delete secret/keycloak-client   # permanently, including version history
 
-# убрать запись из roles.yaml
-# убрать блоки из docker-compose.yaml
+# Remove the entry from roles.yaml
+# Remove the service blocks from docker-compose.yaml
 
-docker compose down vault-bootstrap-auth-service vault-agent-auth-service auth-service
-docker volume rm <project>_vault-approle-auth-service <project>_auth-service-config-rendered
+docker compose -f infra/docker-compose.yaml rm -sf vault-bootstrap-auth auth-service
+docker volume rm <project>_vault-approle-auth
 ```
 
 `apply-vault-config.sh` не удаляет то, чего нет в манифесте — только
@@ -878,11 +898,11 @@ docker volume rm <project>_vault-approle-auth-service <project>_auth-service-con
 #!/usr/bin/env bash
 # infra/vault/scripts/apply-vault-config.sh
 #
-# Идемпотентно применяет все policy и AppRole roles из roles.yaml.
-# Запускается ВРУЧНУЮ, С ХОСТА: один раз при первой настройке и повторно
-# при добавлении новой роли. НЕ часть docker-compose up.
+# Idempotently applies all policies and AppRole roles from roles.yaml.
+# Run manually from the host during initial setup and again
+# when adding a new role. Not part of docker-compose up.
 #
-# Требует: vault CLI, yq, VAULT_ADDR и VAULT_TOKEN в окружении
+# Requires: Vault CLI, yq, and VAULT_ADDR/VAULT_TOKEN in the environment
 
 set -euo pipefail
 
@@ -951,11 +971,11 @@ done
 #!/usr/bin/env sh
 # infra/vault/scripts/bootstrap-approle.sh
 #
-# Кладёт role_id (статичный) и СВЕЖИЙ одноразовый secret_id в volume,
-# который читает vault-agent при старте. Запускается как отдельный
-# short-lived контейнер ПЕРЕД vault-agent-*, при КАЖДОМ поднятии стека.
+# Writes a static role_id and a fresh single-use secret_id to a volume,
+# which the Vault Agent reads at startup. Runs as a separate
+# short-lived container before vault-agent-* on every stack startup.
 #
-# Аргументы: $1 = имя роли, $2 = директория для role-id/secret-id
+# Arguments: $1 = role name, $2 = output directory for role-id/secret-id
 
 set -eu
 
@@ -1236,7 +1256,7 @@ docker-compose: `secret_id` генерируется локально, внут�
 без bootstrap-контейнеров в самом compose:
 
 ```yaml
-# .github/workflows/deploy.yml (фрагмент)
+# .github/workflows/deploy.yml (excerpt)
 - name: Generate fresh SecretIDs
   env:
     VAULT_ADDR: ${{ secrets.VAULT_ADDR }}
